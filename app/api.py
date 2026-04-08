@@ -76,28 +76,40 @@ app.add_middleware(
 
 # ── Analysis Helper ──────────────────────────────────────────────────────────
 
-async def run_analysis_for_ticker(ticker: str, db: Optional[AsyncSession] = None):
+async def run_analysis_for_ticker(ticker: str, db: Optional[AsyncSession] = None, manual_data: Optional[dict] = None):
     """
     Bridge to the actual LangGraph agent. 
     Invokes the full pipeline to calculate 'Senior Tier' metrics dynamically.
     """
-    from app.sample_data import SEED_DATA
-    
-    # 1. Fetch seed record
-    record = next((item for item in SEED_DATA if item["ticker"].upper() == ticker.upper()), SEED_DATA[0])
-    
-    # 2. Build AgentState
-    initial_state = {
-        "company_data": {
-            "ticker": record["ticker"],
-            "company_name": record["company_name"]
-        },
-        "historical_data": record["data"]["metrics"]["yearly"],
-        "metrics": None,
-        "search_query": f"{record['ticker']} news",
-        "search_results": [],
-        "analysis_result": None,
-    }
+    if manual_data:
+        # 1. Use manual payload
+        initial_state = {
+            "company_data": manual_data["company"],
+            "historical_data": manual_data["historical_data"],
+            "metrics": None,
+            "search_query": "",
+            "search_results": [],
+            "analysis_result": None,
+        }
+        ticker = manual_data["company"].get("ticker", "PRIVATE")
+        company_name = manual_data["company"].get("company_name", "Private Company")
+    else:
+        # 2. Fetch seed record for ticker
+        from app.sample_data import SEED_DATA
+        record = next((item for item in SEED_DATA if item["ticker"].upper() == ticker.upper()), SEED_DATA[0])
+        company_name = record["company_name"]
+        
+        initial_state = {
+            "company_data": {
+                "ticker": record["ticker"],
+                "company_name": record["company_name"]
+            },
+            "historical_data": record["data"]["metrics"]["yearly"],
+            "metrics": None,
+            "search_query": f"{record['ticker']} news",
+            "search_results": [],
+            "analysis_result": None,
+        }
 
     # 3. Invoke Graph
     try:
@@ -108,12 +120,18 @@ async def run_analysis_for_ticker(ticker: str, db: Optional[AsyncSession] = None
         analysis = result.get("analysis", {})
         metrics = final_state.get("metrics", {})
         
+        # Determine Color Signal
+        z0 = metrics.get("current_z_score", 0)
+        if z0 > 2.99: color_signal = "GREEN"
+        elif z0 > 1.8: color_signal = "YELLOW"
+        else: color_signal = "RED"
+        
         # 5. Save to History if DB session provided
         if db:
             try:
                 analysis_history = AnalysisHistory(
-                    ticker=record["ticker"],
-                    company_name=record["company_name"],
+                    ticker=ticker.upper(),
+                    company_name=company_name,
                     archetype=analysis.get("analyst_verdict_archetype", "UNKNOWN"),
                     analysis_data=final_state
                 )
@@ -124,40 +142,37 @@ async def run_analysis_for_ticker(ticker: str, db: Optional[AsyncSession] = None
 
         return {
             "metrics": metrics,
-            "analysis": analysis
+            "analysis": analysis,
+            "color_signal": color_signal
         }
     except Exception as e:
         print(f"Graph invocation failed: {e}")
-        # Fallback to seed data if graph fails (e.g. API key issue)
-        return record["data"]
+        # Fallback for demo if no graph capability
+        if not manual_data:
+            from app.sample_data import SEED_DATA
+            record = next((item for item in SEED_DATA if item["ticker"].upper() == ticker.upper()), SEED_DATA[0])
+            return {**record["data"], "color_signal": "YELLOW"}
+        raise e
 
 @app.get("/api/analyze/stream")
 async def analyze_stream(ticker: str, db: AsyncSession = Depends(get_db)):
     async def event_generator():
-        # Step 1: emit pipeline progress events
-        yield f"data: {json.dumps({'type':'progress','step':'fetching','label':'Fetching 5-year financial data'})}\n\n"
-        
+        yield f"data: {json.dumps({'type':'progress','step':'fetching','label':'Fetching 5-year data'})}\n\n"
+        await asyncio.sleep(0.5)
         yield f"data: {json.dumps({'type':'progress','step':'normalizing','label':'Normalizing GAAP figures'})}\n\n"
-        
+        await asyncio.sleep(0.5)
         yield f"data: {json.dumps({'type':'progress','step':'trend_engine','label':'Running Trend Engine'})}\n\n"
+        await asyncio.sleep(0.5)
+        yield f"data: {json.dumps({'type':'progress','step':'verdict','label':'Generating Retail Verdict'})}\n\n"
         
-        yield f"data: {json.dumps({'type':'progress','step':'flags','label':'Detecting Anomaly Patterns'})}\n\n"
-        
-        yield f"data: {json.dumps({'type':'progress','step':'verdict','label':'Generating Analyst Verdict'})}\n\n"
-        
-        # Final event: emit the complete result payload and persist to DB
-        result = await run_analysis_for_ticker(ticker, db)
-        yield f"data: {json.dumps({'type':'result','payload': result})}\n\n"
+        try:
+            result = await run_analysis_for_ticker(ticker, db)
+            yield f"data: {json.dumps({'type':'result','payload': result})}\n\n"
+        except Exception as e:
+            yield f"data: {json.dumps({'type':'error','message': str(e)})}\n\n"
         yield "data: [DONE]\n\n"
         
-    return StreamingResponse(
-        event_generator(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-        }
-    )
+    return StreamingResponse(event_generator(), media_type="text/event-stream")
 
 # ── API Security ─────────────────────────────────────────────────────────────
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "dev_default_key")

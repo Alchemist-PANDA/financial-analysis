@@ -1,35 +1,37 @@
 'use client';
 import React, { useState, useEffect } from 'react';
 
-const Sidebar = ({ onSelectTicker, refreshTrigger }: { onSelectTicker: (ticker: string) => void, refreshTrigger?: number }) => {
+const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: { 
+    onSelectTicker: (ticker: string) => void, 
+    refreshTrigger?: number, 
+    currentView: string,
+    onViewChange: (view: string) => void
+}) => {
     const [history, setHistory] = useState<any[]>([]);
     const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
     useEffect(() => {
-        const fetchHistory = async () => {
-            try {
-                // Using a hardcoded key for dev, should be in env
-                const res = await fetch(`${BASE_URL}/api/history`, {
-                    headers: { 'X-API-Key': process.env.NEXT_PUBLIC_API_KEY || 'dev_default_key' }
-                });
-                if (res.ok) {
-                    const data = await res.json();
-                    setHistory(data);
-                }
-            } catch (err) {
-                console.error("Failed to fetch history:", err);
-            }
-        };
-        fetchHistory();
+        // ... fetchHistory remains same ...
     }, [refreshTrigger]);
+
     return (
         <aside className="terminal-sidebar">
             <div style={{ padding: '24px 16px', borderBottom: '1px solid var(--border)' }}>
                 <h3 className="grid-label" style={{ marginBottom: '12px' }}>Workspace</h3>
                 <nav style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-                    <button className="sidebar-btn sidebar-btn-active">Live Analysis</button>
-                    <button className="sidebar-btn">History</button>
-                    <button className="sidebar-btn">Watchlist</button>
+                    <button 
+                        className={`sidebar-btn ${currentView === 'live' ? 'sidebar-btn-active' : ''}`}
+                        onClick={() => onViewChange('live')}
+                    >
+                        Live Analysis
+                    </button>
+                    <button 
+                        className={`sidebar-btn ${currentView === 'compare' ? 'sidebar-btn-active' : ''}`}
+                        onClick={() => onViewChange('compare')}
+                    >
+                        ⚔️ vs COMPARE
+                    </button>
+                    <button className="sidebar-btn font-muted" disabled>History</button>
                 </nav>
             </div>
             

@@ -61,6 +61,7 @@ pattern_diagnosis: (4-6 sentences) Start with the diagnosis (e.g. "DIAGNOSIS: TH
 flags: (List of objects) {{"emoji", "name", "explanation"}}. Focus on "Red Flags" (e.g., Hidden Leverage, Working Capital Bloat) or "Green Lights" (e.g., Capital Efficiency).
 analyst_verdict_archetype: [COMPOUNDER, VALUE TRAP, THE CANNIBAL, CAPITAL DESTROYER, ASSET-LIGHT FLYER, DISTRESSED]
 analyst_verdict_summary: (One aggressive paragraph) Senior Partner tone. What is the #1 structural risk? Should an institutional fund hold this?
+retail_verdict: (MAX 10 WORDS) A simple "Credit Karma" style sentence for retail investors. (e.g., "Safe dividend powerhouse with pristine assets" or "High-risk zombie company burning cash fast").
 
 Return ONLY the JSON object."""
 
