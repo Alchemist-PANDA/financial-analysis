@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Institutional Equity Research</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+    <header class="topbar">
+        <div class="logo">
+            <div class="logo-icon"></div>
+            <h1>Apex Analytics Core</h1>
+        </div>
+        <div class="user-menu">Institutional User</div>
+    </header>
+
+    <main class="dashboard">
+        <!-- LEFT PANEL: CONTROLS -->
+        <section class="panel controls-panel">
+            <div class="panel-header">
+                <h2>Analysis Parameters</h2>
+                <p>Input dynamic 5+ year historical data</p>
+            </div>
+            
+            <div class="control-group">
+                <button id="btn-load-sample" class="btn btn-secondary">Load Sample Dataset (Apex Fintech)</button>
+            </div>
+
+            <form id="analysis-form">
+                <div class="form-section">
+                    <h3>Company Information</h3>
+                    <div class="input-grid">
+                        <div class="input-field">
+                            <label>Company Name</label>
+                            <input type="text" id="company-name" required placeholder="e.g. Apex Fintech">
+                        </div>
+                        <div class="input-field">
+                            <label>Sector</label>
+                            <input type="text" id="company-sector" required placeholder="e.g. Financial Services">
+                        </div>
+                        <div class="input-field">
+                            <label>Ticker</label>
+                            <input type="text" id="company-ticker" required placeholder="e.g. APEX">
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Hidden textarea to store the historical data object (to keep UI clean for MVP) -->
+                <div class="form-section">
+                    <h3>Historical Data (JSON format)</h3>
+                    <div class="input-field">
+                        <textarea id="historical-data" rows="10" required placeholder='[{"year": "2020", "revenue": ...}]'></textarea>
+                    </div>
+                </div>
+
+                <div class="action-footer">
+                    <button type="submit" id="btn-analyze" class="btn btn-primary">
+                        <span class="btn-text">Generate Analysis</span>
+                        <span class="loader hidden"></span>
+                    </button>
+                </div>
+            </form>
+        </section>
+
+        <!-- RIGHT PANEL: RESULTS -->
+        <section class="panel results-panel">
+            <div id="empty-state" class="empty-state">
+                <svg width="48" height="48" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"></path><polyline points="7 10 12 15 17 10"></polyline><line x1="12" y1="15" x2="12" y2="3"></line></svg>
+                <h3>Awaiting Data</h3>
+                <p>Run the analysis to generate institutional-grade insights.</p>
+            </div>
+
+            <div id="results-content" class="results-content hidden">
+                <header class="report-header">
+                    <div class="report-title">
+                        <h2 id="report-company">Company Name</h2>
+                        <span id="report-ticker" class="ticker-badge">TICKER</span>
+                    </div>
+                    <div class="report-verdict-banner" id="verdict-banner">
+                        ARCHETYPE
+                    </div>
+                </header>
+
+                <div class="report-section">
+                    <h3>Trend Summary Table</h3>
+                    <div class="table-container">
+                        <table id="trend-table">
+                            <thead>
+                                <tr id="table-head-row">
+                                    <th>Metric</th>
+                                    <!-- Dynamic years go here -->
+                                    <th>Trend</th>
+                                    <th>Signal</th>
+                                </tr>
+                            </thead>
+                            <tbody id="table-body">
+                                <!-- Dynamic rows go here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <div class="report-section">
+                    <h3>Pattern Diagnosis</h3>
+                    <p id="pattern-diagnosis" class="diagnosis-text">...</p>
+                </div>
+
+                <div class="report-section">
+                    <h3>Flag Summary</h3>
+                    <div id="flags-container" class="flags-grid">
+                        <!-- Dynamic flags -->
+                    </div>
+                </div>
+
+                <div class="report-section highlight-section">
+                    <h3>Analyst Verdict</h3>
+                    <p id="analyst-verdict" class="verdict-text">...</p>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <script src="/app.js"></script>
+</body>
+</html>

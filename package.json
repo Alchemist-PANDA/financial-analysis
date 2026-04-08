@@ -1,0 +1,17 @@
+{
+  "name": "financial-agent-terminal",
+  "version": "1.0.0",
+  "description": "Institutional-grade financial analysis terminal",
+  "main": "index.js",
+  "scripts": {
+    "backend": "python -m uvicorn app.api:app --host 0.0.0.0 --port 8000 --reload",
+    "frontend": "npm run dev --prefix frontend-next",
+    "dev": "npm run check-env && concurrently \"npm run backend\" \"npm run frontend\"",
+    "check-env": "node -e \"if (!require('fs').existsSync('.env')) { console.error('ERROR: .env file missing. Copy .env.example to .env and add your API keys.'); process.exit(1); }\"",
+    "setup": "pip install -r requirements.txt && npm install && npm install --prefix frontend-next",
+    "install-all": "npm run setup"
+  },
+  "devDependencies": {
+    "concurrently": "^8.2.2"
+  }
+}
