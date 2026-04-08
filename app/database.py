@@ -1,17 +1,41 @@
-# from sqlalchemy import create_url (Removed to fix ImportError, not used)
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine
 from sqlalchemy.orm import sessionmaker, DeclarativeBase
 import os
+from urllib.parse import parse_qsl, urlencode, urlsplit, urlunsplit
+
+
+def normalize_database_url(url: str) -> str:
+    """
+    Normalize DB URLs for SQLAlchemy async engines.
+    - Enforce `postgresql+asyncpg://` driver.
+    - Convert unsupported asyncpg query args:
+      `sslmode=require` -> `ssl=require`
+      drop `channel_binding`
+    """
+    if url.startswith("postgres://"):
+        url = url.replace("postgres://", "postgresql+asyncpg://", 1)
+    elif url.startswith("postgresql://") and not url.startswith("postgresql+asyncpg://"):
+        url = url.replace("postgresql://", "postgresql+asyncpg://", 1)
+
+    if not url.startswith("postgresql+asyncpg://"):
+        return url
+
+    parts = urlsplit(url)
+    query = dict(parse_qsl(parts.query, keep_blank_values=True))
+
+    sslmode = query.pop("sslmode", None)
+    query.pop("channel_binding", None)
+    if sslmode and "ssl" not in query:
+        query["ssl"] = sslmode
+
+    normalized_query = urlencode(query)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, normalized_query, parts.fragment))
 
 # Database configuration (Dynamic for local vs production)
 DATABASE_URL = os.getenv("DATABASE_URL")
 
 if DATABASE_URL:
-    # If using PostgreSQL (e.g. Neon), ensure the protocol is correct for SQLAlchemy async
-    if DATABASE_URL.startswith("postgres://"):
-        DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql+asyncpg://", 1)
-    elif DATABASE_URL.startswith("postgresql://") and "postgresql+asyncpg://" not in DATABASE_URL:
-        DATABASE_URL = DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://", 1)
+    DATABASE_URL = normalize_database_url(DATABASE_URL)
 else:
     # Default to local SQLite
     DB_FILE = "financial_agent.db"
