@@ -37,6 +37,7 @@ yarn-error.log*
 .env.local
 .env.production
 .env.development
+.env.vercel*
 
 # OS
 .DS_Store
@@ -51,3 +52,5 @@ financial_agent.db
 frontend-next/.next/
 frontend-next/node_modules/
 PROD_VARIABLES.md
+
+.vercel

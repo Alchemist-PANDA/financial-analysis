@@ -20,7 +20,8 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
     const [history, setHistory] = useState<HistoryItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
-    const BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
+    const BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\\n/g, '').trim();
+    const API_KEY = (process.env.NEXT_PUBLIC_API_KEY || 'dev_default_key').replace(/\\n/g, '').trim();
 
     useEffect(() => {
         let isActive = true;
@@ -30,7 +31,7 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
             try {
                 const response = await fetch(`${BASE_URL}/api/history`, {
                     headers: {
-                        'X-API-Key': process.env.NEXT_PUBLIC_API_KEY || 'dev_default_key',
+                        'X-API-Key': API_KEY,
                     },
                 });
                 const body = await response.json();
@@ -57,7 +58,7 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
         return () => {
             isActive = false;
         };
-    }, [BASE_URL, refreshTrigger]);
+    }, [API_KEY, BASE_URL, refreshTrigger]);
 
     return (
         <aside className="terminal-sidebar">
