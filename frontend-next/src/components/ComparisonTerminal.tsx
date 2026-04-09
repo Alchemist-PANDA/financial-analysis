@@ -7,11 +7,11 @@ type CompareAnalysis = {
     company_name: string;
     color_signal: 'GREEN' | 'YELLOW' | 'RED';
     metrics: {
-        revenue_cagr_pct: number;
-        current_z_score: number;
-        current_fcf_conversion_pct: number;
-        current_roe: number;
-        current_dso: number;
+        revenue_cagr_pct?: number | null;
+        current_z_score?: number | null;
+        current_fcf_conversion_pct?: number | null;
+        current_roe?: number | null;
+        current_dso?: number | null;
     };
     analysis: {
         analyst_verdict_archetype: string;
@@ -33,6 +33,21 @@ const scoreColor = (signal: 'GREEN' | 'YELLOW' | 'RED') => {
     if (signal === 'GREEN') return '#00ff41';
     if (signal === 'RED') return '#ef4444';
     return '#f59e0b';
+};
+
+const formatMetric = (value: unknown, precision: number, suffix = '') => {
+    const numeric =
+        typeof value === 'number'
+            ? value
+            : typeof value === 'string' && value.trim() !== ''
+                ? Number(value)
+                : NaN;
+
+    if (!Number.isFinite(numeric)) {
+        return '--';
+    }
+
+    return `${numeric.toFixed(precision)}${suffix}`;
 };
 
 const ComparisonTerminal = () => {
@@ -84,28 +99,28 @@ const ComparisonTerminal = () => {
         return [
             {
                 label: 'Revenue CAGR',
-                left: `${result.left.metrics.revenue_cagr_pct.toFixed(1)}%`,
-                right: `${result.right.metrics.revenue_cagr_pct.toFixed(1)}%`,
+                left: formatMetric(result.left.metrics.revenue_cagr_pct, 1, '%'),
+                right: formatMetric(result.right.metrics.revenue_cagr_pct, 1, '%'),
             },
             {
                 label: 'Altman Z',
-                left: result.left.metrics.current_z_score.toFixed(2),
-                right: result.right.metrics.current_z_score.toFixed(2),
+                left: formatMetric(result.left.metrics.current_z_score, 2),
+                right: formatMetric(result.right.metrics.current_z_score, 2),
             },
             {
                 label: 'FCF Conversion',
-                left: `${result.left.metrics.current_fcf_conversion_pct.toFixed(1)}%`,
-                right: `${result.right.metrics.current_fcf_conversion_pct.toFixed(1)}%`,
+                left: formatMetric(result.left.metrics.current_fcf_conversion_pct, 1, '%'),
+                right: formatMetric(result.right.metrics.current_fcf_conversion_pct, 1, '%'),
             },
             {
                 label: 'ROE',
-                left: `${result.left.metrics.current_roe.toFixed(1)}%`,
-                right: `${result.right.metrics.current_roe.toFixed(1)}%`,
+                left: formatMetric(result.left.metrics.current_roe, 1, '%'),
+                right: formatMetric(result.right.metrics.current_roe, 1, '%'),
             },
             {
                 label: 'DSO',
-                left: `${result.left.metrics.current_dso.toFixed(0)} days`,
-                right: `${result.right.metrics.current_dso.toFixed(0)} days`,
+                left: formatMetric(result.left.metrics.current_dso, 0, ' days'),
+                right: formatMetric(result.right.metrics.current_dso, 0, ' days'),
             },
         ];
     }, [result]);
