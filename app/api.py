@@ -1,11 +1,20 @@
 import sys
 import os
+import warnings
 from datetime import datetime
 from typing import Any, List, Optional
 from fastapi import FastAPI, HTTPException, Depends, Security
 from fastapi.security.api_key import APIKeyHeader
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, Field
+
+# Suppress upstream compatibility warning noise under Python 3.14.
+warnings.filterwarnings(
+    "ignore",
+    message=r"Core Pydantic V1 functionality isn't compatible with Python 3\.14 or greater\.",
+    category=UserWarning,
+)
+warnings.simplefilter("ignore", RuntimeWarning)
 
 # Ensure app/ is on the path for sibling imports
 sys.path.insert(0, os.path.dirname(__file__))

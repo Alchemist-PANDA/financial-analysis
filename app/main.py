@@ -11,7 +11,14 @@ Usage:
 
 import sys
 import os
+import warnings
 
+warnings.filterwarnings(
+    "ignore",
+    message=r"Core Pydantic V1 functionality isn't compatible with Python 3\.14 or greater\.",
+    category=UserWarning,
+)
+warnings.simplefilter("ignore", RuntimeWarning)
 # ── Path fix: allow running from inside app/ ──────────────────────────────────
 _APP_DIR  = os.path.dirname(os.path.abspath(__file__))
 _ROOT_DIR = os.path.join(_APP_DIR, "..")
@@ -133,3 +140,4 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
+

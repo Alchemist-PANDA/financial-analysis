@@ -7,6 +7,15 @@ NOTE: These imports use relative paths (dot notation).
       absolute imports instead — that is the normal behaviour.
 """
 
+import warnings
+
+# Suppress upstream LangChain/Pydantic compatibility warning under Python 3.14.
+warnings.filterwarnings(
+    "ignore",
+    message=r"Core Pydantic V1 functionality isn't compatible with Python 3\.14 or greater\.",
+    category=UserWarning,
+)
+
 # Only expose symbols when app is imported as a package (e.g. from tests)
 # Running main.py directly inside app/ does NOT use this file.
 try:
