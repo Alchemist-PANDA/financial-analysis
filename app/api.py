@@ -255,10 +255,18 @@ async def run_analysis_for_ticker(
             return build_response_payload(resolved_ticker, company_name, fallback_metrics, fallback_analysis)
 
         from app.sample_data import SEED_DATA
+        from app.calculator import calculate_metrics
 
         record = next((item for item in SEED_DATA if item["ticker"].upper() == requested_ticker), SEED_DATA[0])
-        fallback_metrics = record.get("data", {}).get("metrics", {})
-        fallback_analysis = record.get("data", {}).get("analysis", {})
+        # Seed metrics contain raw 5-year inputs, not the computed forensic table the UI expects.
+        seed_metrics = record.get("data", {}).get("metrics", {}) or {}
+        seed_yearly = seed_metrics.get("yearly", [])
+        try:
+            fallback_metrics = calculate_metrics(seed_yearly)
+        except Exception:
+            fallback_metrics = seed_metrics
+
+        fallback_analysis = record.get("data", {}).get("analysis", {}) or fallback_analysis_from_metrics(fallback_metrics)
         return build_response_payload(record["ticker"], record["company_name"], fallback_metrics, fallback_analysis)
 
 @app.get("/api/analyze/stream")
