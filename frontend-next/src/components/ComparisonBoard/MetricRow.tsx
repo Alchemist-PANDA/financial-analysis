@@ -10,9 +10,9 @@ type MetricRowProps = {
     higherIsBetter?: boolean;
 };
 
-const formatValue = (value: number, suffix = '', precision = 2) => {
-    if (!Number.isFinite(value)) {
-        return '--';
+const formatValue = (value: number | undefined | null, suffix = '', precision = 2) => {
+    if (value === undefined || value === null || !Number.isFinite(value)) {
+        return '';
     }
     return `${value.toFixed(precision)}${suffix}`;
 };
@@ -24,6 +24,13 @@ const MetricRow = ({
     industryAverageValue,
     higherIsBetter = true,
 }: MetricRowProps) => {
+    const isMissing = (val: number | undefined | null) => {
+        const formatted = formatValue(val);
+        return !formatted || formatted === '0.00' || formatted === '0.0' || formatted === '--';
+    };
+    if (isMissing(companyAValue) && isMissing(companyBValue) && isMissing(industryAverageValue)) {
+        return null;
+    }
     const beatsIndustry = (value: number) => {
         if (!Number.isFinite(value) || !Number.isFinite(industryAverageValue)) {
             return false;
@@ -61,24 +68,24 @@ const MetricRow = ({
 
                 .metric-name {
                     color: var(--foreground);
-                    background: rgba(255, 255, 255, 0.02);
+                    background: var(--bg-elevated);
                     font-family: var(--font-sans);
                     font-size: 13px;
                 }
 
                 .cell-win {
-                    color: #00ff41;
-                    background: rgba(0, 255, 65, 0.08);
+                    color: #15803D;
+                    background: #DCFCE7;
                 }
 
                 .cell-loss {
-                    color: #ef4444;
-                    background: rgba(239, 68, 68, 0.08);
+                    color: #B91C1C;
+                    background: #FEE2E2;
                 }
 
                 .industry-cell {
                     color: var(--text-muted);
-                    background: rgba(255, 255, 255, 0.02);
+                    background: var(--bg-elevated);
                 }
             `}</style>
         </div>

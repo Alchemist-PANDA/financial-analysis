@@ -182,7 +182,8 @@ const ComparisonBoard = ({
             <style jsx>{`
                 .comparison-board {
                     border: 1px solid var(--border);
-                    background: #040404;
+                    background: var(--bg-surface);
+                    box-shadow: var(--shadow-card);
                     overflow-x: auto;
                 }
 
@@ -190,7 +191,7 @@ const ComparisonBoard = ({
                     display: grid;
                     grid-template-columns: 220px 180px 180px 180px;
                     border-bottom: 1px solid var(--border);
-                    background: #0b0b0b;
+                    background: var(--bg-elevated);
                 }
 
                 .metric-head,

@@ -23,13 +23,18 @@ sys.path.insert(0, os.path.dirname(os.path.dirname(__file__))) # Root dir for co
 from app.graph import graph
 from config import APP_NAME, APP_VERSION
 from app.database import init_db, get_db, async_session
-from app.models import AnalysisHistory
+from app.models import AnalysisHistory, ScorecardAnalysis
 from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import json
 from contextlib import asynccontextmanager
 from fastapi.responses import StreamingResponse
 import asyncio
+from app.calculator import numeric_value
+from app.engine.orchestrator import run_full_analysis
+from app.agent import generate_scorecard_narrative
+
+GRAPH_TIMEOUT_SECONDS = float(os.getenv("GRAPH_TIMEOUT_SECONDS", "45"))
 
 # ── FastAPI App Setup ────────────────────────────────────────────────────────
 
@@ -38,29 +43,35 @@ from fastapi.middleware.cors import CORSMiddleware
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     # Initialize database
-    await init_db()
-    
-    # Check if we need to seed
-    async with async_session() as db:
-        result = await db.execute(select(AnalysisHistory).limit(1))
-        if not result.scalars().first():
-            from app.sample_data import SEED_DATA
-            for item in SEED_DATA:
-                history = AnalysisHistory(
-                    ticker=item["ticker"],
-                    company_name=item["company_name"],
-                    archetype=item["archetype"],
-                    analysis_data=item["data"]
-                )
-                db.add(history)
-            await db.commit()
+    try:
+        await init_db()
+        
+        # Check if we need to seed
+        async with async_session() as db:
+            result = await db.execute(select(AnalysisHistory).limit(1))
+            if not result.scalars().first():
+                from app.sample_data import SEED_DATA
+                for item in SEED_DATA:
+                    history = AnalysisHistory(
+                        ticker=item["ticker"],
+                        company_name=item["company_name"],
+                        archetype=item["archetype"],
+                        analysis_data=item["data"]
+                    )
+                    db.add(history)
+                await db.commit()
+    except Exception as e:
+        print(f"[DB INIT ERROR] {e}")
     
     yield
 
 app = FastAPI(title=f"{APP_NAME} SaaS API", version=APP_VERSION, lifespan=lifespan)
 
+@app.get("/health")
+async def health_check():
+    return {"status": "healthy"}
+
 # CORS configuration
-# In production, specify your frontend URLs in the FRONTEND_URL environment variable (comma-separated).
 origins = [
     "http://localhost:3000",
     "http://127.0.0.1:3000",
@@ -69,7 +80,6 @@ origins = [
 
 frontend_env = os.getenv("FRONTEND_URL")
 if frontend_env:
-    # Support comma-separated list of origins
     origins.extend([url.strip() for url in frontend_env.split(",") if url.strip()])
 
 app.add_middleware(
@@ -195,19 +205,143 @@ def fallback_analysis_from_metrics(metrics: dict) -> dict:
     }
 
 
+def to_number(value: Any, default: float = 0.0) -> float:
+    try:
+        if value is None:
+            return default
+        return float(value)
+    except (TypeError, ValueError):
+        return default
+
+
+def pick_number(data: dict, *keys: str, default: float = 0.0) -> float:
+    for key in keys:
+        value = numeric_value(data, key, None)
+        if value is not None:
+            return to_number(value, default)
+    return default
+
+
+def get_seed_record(ticker: str) -> Optional[dict]:
+    from app.sample_data import SEED_DATA
+
+    requested = (ticker or "").strip().upper()
+    if not requested:
+        return None
+    return next((item for item in SEED_DATA if item["ticker"].upper() == requested), None)
+
+
+def supported_tickers() -> list[str]:
+    from app.sample_data import SEED_DATA
+
+    return [item["ticker"].upper() for item in SEED_DATA]
+
+
+def build_scorecard_inputs_from_history(
+    company_name: str,
+    historical_data: list[dict],
+    scoring_mode: str = "credit",
+    data_source: str = "ticker",
+) -> dict:
+    latest = historical_data[-1] if historical_data else {}
+    prior = historical_data[-2] if len(historical_data) > 1 else {}
+
+    revenue = pick_number(latest, "revenue")
+    ebitda = pick_number(latest, "ebitda")
+    net_income = pick_number(latest, "net_income")
+    total_debt = pick_number(latest, "debt", "total_debt")
+    cash = pick_number(latest, "cash", "cash_equivalents")
+    total_assets = pick_number(latest, "total_assets")
+    total_equity = pick_number(latest, "equity", "total_equity")
+    market_cap = pick_number(latest, "market_value_equity", "market_cap")
+    cogs_raw = numeric_value(latest, "cogs", None)
+    cogs = to_number(cogs_raw, 0.0)
+
+    return {
+        "company_name": company_name,
+        "revenue": revenue,
+        "ebitda": ebitda,
+        "net_income": net_income,
+        "interest_expense": pick_number(latest, "interest_expense"),
+        "total_debt": total_debt,
+        "cash_equivalents": cash,
+        "total_assets": total_assets,
+        "current_assets": pick_number(latest, "current_assets"),
+        "current_liabilities": pick_number(latest, "current_liabilities"),
+        "short_term_debt": pick_number(latest, "short_term_debt"),
+        "gross_profit": revenue - cogs if cogs_raw is not None else 0.0,
+        "cfo": pick_number(latest, "cfo"),
+        "capex": pick_number(latest, "capex"),
+        "accounts_receivable": pick_number(latest, "accounts_receivable"),
+        "inventory": pick_number(latest, "inventory"),
+        "accounts_payable": pick_number(latest, "accounts_payable"),
+        "cogs": cogs,
+        "market_cap": market_cap,
+        "ev": market_cap + total_debt - cash,
+        "retained_earnings": pick_number(latest, "retained_earnings"),
+        "total_equity": total_equity,
+        "tax_rate": pick_number(latest, "tax_rate", default=0.25),
+        "revenue_prior": pick_number(prior, "revenue"),
+        "ebitda_prior": pick_number(prior, "ebitda"),
+        "net_income_prior": pick_number(prior, "net_income"),
+        "total_debt_prior": pick_number(prior, "debt", "total_debt"),
+        "cash_prior": pick_number(prior, "cash", "cash_equivalents"),
+        "total_equity_prior": pick_number(prior, "equity", "total_equity"),
+        "cfo_prior": pick_number(prior, "cfo"),
+        "fcf_prior": pick_number(prior, "fcf"),
+        "working_capital": pick_number(latest, "working_capital"),
+        "working_capital_prior": pick_number(prior, "working_capital"),
+        "revenue_cagr_years": max(len(historical_data) - 1, 1),
+        "data_source": data_source,
+        "scoring_mode": scoring_mode,
+    }
+
+
+def run_scorecard_analysis(inputs: dict, mode: str = "credit") -> dict:
+    result = run_full_analysis(inputs, mode=mode)
+    try:
+        result["narrative"] = generate_scorecard_narrative(result)
+    except Exception as exc:
+        result["narrative"] = ""
+        result["narrative_error"] = str(exc)
+    return result
+
+
+async def persist_scorecard_result(
+    db: AsyncSession,
+    inputs: dict,
+    result: dict,
+) -> ScorecardAnalysis:
+    record = ScorecardAnalysis(
+        company_name=result.get("company_name", "Unknown"),
+        scoring_mode=result.get("scoring_mode", "credit"),
+        scoring_model_version=result.get("scoring_model_version", "v1.0"),
+        health_score=int(result.get("health_score", 0)),
+        health_band=result.get("health_band", "Unknown"),
+        inputs_data=inputs,
+        result_data=result,
+    )
+    db.add(record)
+    await db.commit()
+    await db.refresh(record)
+    return record
+
+
 async def run_analysis_for_ticker(
     ticker: str,
     db: Optional[AsyncSession] = None,
     manual_data: Optional[dict] = None,
     save_history: bool = True,
+    skip_external: bool = False,
 ) -> dict:
     requested_ticker = (ticker or "N/A").upper()
 
     if manual_data:
         company_payload = manual_data["company"]
+        historical_data = manual_data["historical_data"]
         initial_state = {
             "company_data": company_payload,
-            "historical_data": manual_data["historical_data"],
+            "historical_data": historical_data,
             "metrics": None,
             "search_query": "",
             "search_results": [],
@@ -216,9 +350,13 @@ async def run_analysis_for_ticker(
         resolved_ticker = company_payload.get("ticker", requested_ticker or "CUSTOM")
         company_name = company_payload.get("company_name", "Private Company")
     else:
-        from app.sample_data import SEED_DATA
-
-        record = next((item for item in SEED_DATA if item["ticker"].upper() == requested_ticker), SEED_DATA[0])
+        record = get_seed_record(requested_ticker)
+        if not record:
+            allowed = ", ".join(supported_tickers())
+            raise ValueError(
+                f"Ticker '{requested_ticker}' is not available in this environment. Supported tickers: {allowed}."
+            )
+        historical_data = record["data"]["metrics"]["yearly"]
         resolved_ticker = record["ticker"]
         company_name = record["company_name"]
         initial_state = {
@@ -226,19 +364,67 @@ async def run_analysis_for_ticker(
                 "ticker": record["ticker"],
                 "company_name": record["company_name"],
             },
-            "historical_data": record["data"]["metrics"]["yearly"],
+            "historical_data": historical_data,
             "metrics": None,
             "search_query": f"{record['ticker']} news",
             "search_results": [],
             "analysis_result": None,
         }
 
+    if skip_external:
+        from app.calculator import calculate_metrics
+
+        try:
+            metrics = calculate_metrics(historical_data)
+        except Exception:
+            if manual_data:
+                raise
+            metrics = record.get("data", {}).get("metrics", {}) if not manual_data else {}
+
+        if manual_data:
+            analysis = fallback_analysis_from_metrics(metrics)
+        else:
+            analysis = (
+                record.get("data", {}).get("analysis", {})
+                or fallback_analysis_from_metrics(metrics)
+            )
+
+        response_payload = build_response_payload(resolved_ticker, company_name, metrics, analysis)
+        try:
+            scorecard_inputs = build_scorecard_inputs_from_history(
+                company_name=company_name,
+                historical_data=historical_data,
+                scoring_mode="credit",
+                data_source="manual" if manual_data else "ticker",
+            )
+            response_payload["scorecard"] = run_scorecard_analysis(scorecard_inputs, mode="credit")
+        except Exception as scorecard_err:
+            response_payload["scorecard_error"] = str(scorecard_err)
+        return response_payload
+
     try:
-        final_state = await asyncio.to_thread(graph.invoke, initial_state)
+        final_state = await asyncio.wait_for(
+            asyncio.to_thread(graph.invoke, initial_state),
+            timeout=GRAPH_TIMEOUT_SECONDS,
+        )
         result = final_state.get("analysis_result", {}) or {}
         analysis = result.get("analysis", {}) or {}
         metrics = final_state.get("metrics", {}) or {}
         response_payload = build_response_payload(resolved_ticker, company_name, metrics, analysis)
+
+        scorecard_inputs = None
+        scorecard_result = None
+        try:
+            scorecard_inputs = build_scorecard_inputs_from_history(
+                company_name=company_name,
+                historical_data=historical_data,
+                scoring_mode="credit",
+                data_source="manual" if manual_data else "ticker",
+            )
+            scorecard_result = run_scorecard_analysis(scorecard_inputs, mode="credit")
+            response_payload["scorecard"] = scorecard_result
+        except Exception as scorecard_err:
+            response_payload["scorecard_error"] = str(scorecard_err)
 
         if save_history and db:
             try:
@@ -250,6 +436,11 @@ async def run_analysis_for_ticker(
                 )
                 db.add(analysis_history)
                 await db.commit()
+                if scorecard_inputs and scorecard_result:
+                    scorecard_record = await persist_scorecard_result(
+                        db, scorecard_inputs, scorecard_result
+                    )
+                    scorecard_result["analysis_id"] = scorecard_record.id
             except Exception as db_err:
                 print(f"Failed to save history: {db_err}")
 
@@ -261,13 +452,25 @@ async def run_analysis_for_ticker(
 
             fallback_metrics = calculate_metrics(manual_data["historical_data"])
             fallback_analysis = fallback_analysis_from_metrics(fallback_metrics)
-            return build_response_payload(resolved_ticker, company_name, fallback_metrics, fallback_analysis)
+            response_payload = build_response_payload(
+                resolved_ticker, company_name, fallback_metrics, fallback_analysis
+            )
+            try:
+                scorecard_inputs = build_scorecard_inputs_from_history(
+                    company_name=company_name,
+                    historical_data=manual_data["historical_data"],
+                    scoring_mode="credit",
+                    data_source="manual",
+                )
+                response_payload["scorecard"] = run_scorecard_analysis(
+                    scorecard_inputs, mode="credit"
+                )
+            except Exception as scorecard_err:
+                response_payload["scorecard_error"] = str(scorecard_err)
+            return response_payload
 
-        from app.sample_data import SEED_DATA
         from app.calculator import calculate_metrics
 
-        record = next((item for item in SEED_DATA if item["ticker"].upper() == requested_ticker), SEED_DATA[0])
-        # Seed metrics contain raw 5-year inputs, not the computed forensic table the UI expects.
         seed_metrics = record.get("data", {}).get("metrics", {}) or {}
         seed_yearly = seed_metrics.get("yearly", [])
         try:
@@ -276,7 +479,22 @@ async def run_analysis_for_ticker(
             fallback_metrics = seed_metrics
 
         fallback_analysis = record.get("data", {}).get("analysis", {}) or fallback_analysis_from_metrics(fallback_metrics)
-        return build_response_payload(record["ticker"], record["company_name"], fallback_metrics, fallback_analysis)
+        response_payload = build_response_payload(
+            resolved_ticker, company_name, fallback_metrics, fallback_analysis
+        )
+        try:
+            scorecard_inputs = build_scorecard_inputs_from_history(
+                company_name=company_name,
+                historical_data=historical_data,
+                scoring_mode="credit",
+                data_source="ticker",
+            )
+            response_payload["scorecard"] = run_scorecard_analysis(
+                scorecard_inputs, mode="credit"
+            )
+        except Exception as scorecard_err:
+            response_payload["scorecard_error"] = str(scorecard_err)
+        return response_payload
 
 @app.get("/api/analyze/stream")
 async def analyze_stream(ticker: str, db: AsyncSession = Depends(get_db)):
@@ -290,6 +508,23 @@ async def analyze_stream(ticker: str, db: AsyncSession = Depends(get_db)):
         yield f"data: {json.dumps({'type':'progress','step':'verdict','label':'Generating Retail Verdict'})}\n\n"
         
         try:
+            # Stage 1: Fast metrics calculation for immediate UI population
+            from app.calculator import calculate_metrics
+            
+            record = get_seed_record(ticker)
+            if not record:
+                allowed = ", ".join(supported_tickers())
+                raise ValueError(
+                    f"Ticker '{(ticker or '').upper()}' is not available in this environment. Supported tickers: {allowed}."
+                )
+            company_name = record["company_name"]
+            metrics = calculate_metrics(record["data"]["metrics"]["yearly"])
+            
+            # Send early metrics result so dashboard fields populate instantly
+            early_payload = build_response_payload(record["ticker"], company_name, metrics, {})
+            yield f"data: {json.dumps({'type':'result','payload': early_payload})}\n\n"
+            
+            # Stage 2: Full analysis (AI synthesis + Search + Scraper)
             result = await run_analysis_for_ticker(ticker, db)
             yield f"data: {json.dumps({'type':'result','payload': result})}\n\n"
         except Exception as e:
@@ -302,15 +537,18 @@ async def analyze_stream(ticker: str, db: AsyncSession = Depends(get_db)):
 @app.get("/api/compare")
 async def compare_tickers(ticker_a: str, ticker_b: str):
     """Run two analyses and return a comparison verdict payload."""
-    left, right = await asyncio.gather(
-        run_analysis_for_ticker(ticker_a, db=None, save_history=False),
-        run_analysis_for_ticker(ticker_b, db=None, save_history=False),
-    )
-    return {
-        "left": left,
-        "right": right,
-        "verdict": build_comparison_verdict(left, right),
-    }
+    try:
+        left, right = await asyncio.gather(
+            run_analysis_for_ticker(ticker_a, db=None, save_history=False, skip_external=True),
+            run_analysis_for_ticker(ticker_b, db=None, save_history=False, skip_external=True),
+        )
+        return {
+            "left": left,
+            "right": right,
+            "verdict": build_comparison_verdict(left, right),
+        }
+    except ValueError as err:
+        raise HTTPException(status_code=400, detail=str(err))
 
 # ── API Security ─────────────────────────────────────────────────────────────
 API_SECRET_KEY = os.getenv("API_SECRET_KEY", "dev_default_key")
@@ -357,20 +595,59 @@ class AnalysisRequest(BaseModel):
     )
 
 
-# Serve the frontend UI
+class ScorecardRequest(BaseModel):
+    company_name: str
+    revenue: float
+    ebitda: float
+    net_income: float
+    interest_expense: float
+    total_debt: float
+    cash_equivalents: float
+    total_assets: float
+    current_assets: float
+    current_liabilities: float
+    scoring_mode: str = "credit"
+    data_source: Optional[str] = "manual"
+    short_term_debt: Optional[float] = 0.0
+    gross_profit: Optional[float] = None
+    cfo: Optional[float] = None
+    capex: Optional[float] = None
+    accounts_receivable: Optional[float] = None
+    inventory: Optional[float] = None
+    accounts_payable: Optional[float] = None
+    cogs: Optional[float] = None
+    market_cap: Optional[float] = None
+    ev: Optional[float] = None
+    retained_earnings: Optional[float] = None
+    total_equity: Optional[float] = None
+    tax_rate: Optional[float] = None
+    revenue_prior: Optional[float] = None
+    ebitda_prior: Optional[float] = None
+    net_income_prior: Optional[float] = None
+    total_debt_prior: Optional[float] = None
+    cash_prior: Optional[float] = None
+    total_equity_prior: Optional[float] = None
+    cfo_prior: Optional[float] = None
+    fcf_prior: Optional[float] = None
+    working_capital: Optional[float] = None
+    working_capital_prior: Optional[float] = None
+    revenue_cagr_years: Optional[int] = 3
 
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy"}
+
+# Serve the frontend UI (Disabled, using Vercel)
+# frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 
 @app.get("/api/history", dependencies=[Depends(get_api_key)])
 async def get_history(db: AsyncSession = Depends(get_db)):
     """Fetch the last 20 analyses from the history."""
-    result = await db.execute(
-        select(AnalysisHistory).order_by(AnalysisHistory.created_at.desc()).limit(20)
-    )
-    history = result.scalars().all()
-    return [{"ticker": h.ticker, "name": h.company_name, "archetype": h.archetype, "date": h.created_at} for h in history]
+    try:
+        result = await db.execute(
+            select(AnalysisHistory).order_by(AnalysisHistory.created_at.desc()).limit(20)
+        )
+        history = result.scalars().all()
+        return [{"ticker": h.ticker, "name": h.company_name, "archetype": h.archetype, "date": h.created_at} for h in history]
+    except Exception:
+        return []
 
 @app.get("/api/export/pdf", dependencies=[Depends(get_api_key)])
 async def export_pdf(ticker: str, db: AsyncSession = Depends(get_db)):
@@ -433,7 +710,6 @@ async def analyze_company(request: AnalysisRequest, db: AsyncSession = Depends(g
             "metrics": metrics,
             "analysis": analysis,
             "color_signal": normalized.get("color_signal"),
-            # Backward-compatible keys for older callers.
             "calculated_metrics": metrics,
             "flags": analysis.get("flags", []),
             "pattern_diagnosis": analysis.get("pattern_diagnosis"),
@@ -448,6 +724,44 @@ async def analyze_company(request: AnalysisRequest, db: AsyncSession = Depends(g
     except Exception as err:
         raise HTTPException(status_code=500, detail=f"Analysis engine failed: {err}")
 
-# Serve the frontend UI (Must be at the bottom so it doesn't swallow API routes)
-frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
-app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")
+
+@app.post("/api/scorecard/analyze", dependencies=[Depends(get_api_key)])
+async def analyze_scorecard(request: ScorecardRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        payload = request.model_dump(exclude_none=True)
+        scoring_mode = payload.pop("scoring_mode", "credit")
+        result = run_scorecard_analysis(payload, mode=scoring_mode)
+        record = await persist_scorecard_result(db, payload, result)
+        result["analysis_id"] = record.id
+        return result
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as err:
+        raise HTTPException(status_code=500, detail=f"Scorecard analysis failed: {err}")
+
+
+@app.get("/api/scorecard/history", dependencies=[Depends(get_api_key)])
+async def get_scorecard_history(db: AsyncSession = Depends(get_db)):
+    try:
+        result = await db.execute(
+            select(ScorecardAnalysis).order_by(ScorecardAnalysis.created_at.desc()).limit(10)
+        )
+        history = result.scalars().all()
+        return [
+            {
+                "id": h.id,
+                "company_name": h.company_name,
+                "health_score": h.health_score,
+                "health_band": h.health_band,
+                "scoring_mode": h.scoring_mode,
+                "scoring_model_version": h.scoring_model_version,
+                "created_at": h.created_at,
+                "result": h.result_data,
+                "inputs": h.inputs_data,
+            }
+            for h in history
+        ]
+    except Exception:
+        return []
+
+# app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")

@@ -1,13 +1,13 @@
 .page {
-  --background: #fafafa;
-  --foreground: #fff;
+  --background: #F0F2F5;
+  --foreground: #FFFFFF;
 
-  --text-primary: #000;
-  --text-secondary: #666;
+  --text-primary: #0F172A;
+  --text-secondary: #475569;
 
-  --button-primary-hover: #383838;
-  --button-secondary-hover: #f2f2f2;
-  --button-secondary-border: #ebebeb;
+  --button-primary-hover: #1D4ED8;
+  --button-secondary-hover: #F8FAFC;
+  --button-secondary-border: #E2E8F0;
 
   display: flex;
   flex: 1;
@@ -129,14 +129,14 @@ a.secondary {
   }
 
   .page {
-    --background: #000;
-    --foreground: #000;
+    --background: #F0F2F5;
+    --foreground: #FFFFFF;
 
-    --text-primary: #ededed;
-    --text-secondary: #999;
+    --text-primary: #0F172A;
+    --text-secondary: #475569;
 
-    --button-primary-hover: #ccc;
-    --button-secondary-hover: #1a1a1a;
-    --button-secondary-border: #1a1a1a;
+    --button-primary-hover: #1D4ED8;
+    --button-secondary-hover: #F8FAFC;
+    --button-secondary-border: #E2E8F0;
   }
 }

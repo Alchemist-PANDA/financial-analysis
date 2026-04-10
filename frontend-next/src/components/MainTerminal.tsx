@@ -2,6 +2,10 @@
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import ManualEntryModal from './ManualEntryModal';
+import { FEATURES } from '@/config/features';
+import ScorecardPanel from '@/components/MetricsPanel/Scorecard/ScorecardPanel';
+import AnalysisHistory, { type ScorecardHistoryItem } from '@/components/MetricsPanel/Scorecard/AnalysisHistory';
+import type { ScorecardResult } from '@/components/MetricsPanel/Scorecard/types';
 
 type ForensicFlag = {
     emoji?: string;
@@ -21,7 +25,7 @@ type YearMetric = {
     z_score: number;
 };
 
-type MetricsPayload = {
+export type MetricsPayload = {
     yearly: YearMetric[];
     revenue_cagr_pct: number;
     margin_signal: string;
@@ -44,6 +48,8 @@ type AnalysisResult = {
     metrics: MetricsPayload;
     analysis: AnalysisPayload;
     color_signal: 'GREEN' | 'YELLOW' | 'RED';
+    scorecard?: ScorecardResult;
+    scorecard_error?: string;
 };
 
 type ManualYearInput = {
@@ -96,6 +102,8 @@ const normalizeResultPayload = (raw: unknown, fallbackTicker: string): AnalysisR
     const companyName = typeof data.company_name === 'string' ? data.company_name : fallbackTicker;
     const ticker = typeof data.ticker === 'string' ? data.ticker : fallbackTicker;
     const colorSignal = typeof data.color_signal === 'string' ? data.color_signal : 'YELLOW';
+    const scorecard = (data.scorecard as ScorecardResult | undefined) ?? undefined;
+    const scorecardError = typeof data.scorecard_error === 'string' ? data.scorecard_error : undefined;
 
     if (!metrics || !analysis) {
         return null;
@@ -107,6 +115,8 @@ const normalizeResultPayload = (raw: unknown, fallbackTicker: string): AnalysisR
         metrics,
         analysis,
         color_signal: colorSignal === 'GREEN' || colorSignal === 'RED' ? colorSignal : 'YELLOW',
+        scorecard,
+        scorecard_error: scorecardError,
     };
 };
 
@@ -117,6 +127,11 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
     const [analysisData, setAnalysisData] = useState<AnalysisResult | null>(null);
     const [error, setError] = useState<string | null>(null);
     const [showManualModal, setShowManualModal] = useState(false);
+    const [scorecardResult, setScorecardResult] = useState<ScorecardResult | null>(null);
+    const [scorecardView, setScorecardView] = useState<'simple' | 'expert'>('simple');
+    const [scorecardMode, setScorecardMode] = useState<'credit' | 'investment'>('credit');
+    const [scorecardHistory, setScorecardHistory] = useState<ScorecardHistoryItem[]>([]);
+    const [scorecardHistoryError, setScorecardHistoryError] = useState<string | null>(null);
 
     const eventSourceRef = useRef<EventSource | null>(null);
     const lastForcedTickerRef = useRef<string | null>(null);
@@ -135,6 +150,38 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
             closeEventSource();
         };
     }, [closeEventSource]);
+
+    useEffect(() => {
+        if (!FEATURES.SCORECARD_HISTORY) {
+            return;
+        }
+        let isActive = true;
+        const loadHistory = async () => {
+            setScorecardHistoryError(null);
+            try {
+                const response = await fetch(`${BASE_URL}/api/scorecard/history`, {
+                    headers: { 'X-API-Key': API_KEY },
+                });
+                const body = await response.json();
+                if (!response.ok) {
+                    throw new Error(body?.detail || 'Unable to load scorecard history.');
+                }
+                if (isActive) {
+                    setScorecardHistory(Array.isArray(body) ? body : []);
+                }
+            } catch (err) {
+                if (isActive) {
+                    const message = err instanceof Error ? err.message : 'Failed to load scorecard history.';
+                    setScorecardHistoryError(message);
+                    setScorecardHistory([]);
+                }
+            }
+        };
+        void loadHistory();
+        return () => {
+            isActive = false;
+        };
+    }, [API_KEY, BASE_URL]);
 
     const finalizeAnalysis = useCallback(() => {
         setIsAnalyzing(false);
@@ -169,6 +216,10 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
             }
 
             setAnalysisData(normalized);
+            setScorecardResult(normalized.scorecard ?? null);
+            if (normalized.scorecard?.scoring_mode) {
+                setScorecardMode(normalized.scorecard.scoring_mode);
+            }
             onDataLoaded?.(normalized.metrics);
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Network error during manual analysis.';
@@ -176,7 +227,7 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
         } finally {
             finalizeAnalysis();
         }
-    }, [API_KEY, BASE_URL, finalizeAnalysis]);
+    }, [API_KEY, BASE_URL, finalizeAnalysis, onDataLoaded]);
 
     const handleAnalyze = useCallback(async (targetTicker?: string, manualPayload?: ManualAnalysisInput) => {
         const resolvedTicker = (targetTicker || ticker).trim().toUpperCase();
@@ -189,6 +240,7 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
         setError(null);
         setProgress([]);
         setAnalysisData(null);
+        setScorecardResult(null);
 
         if (manualPayload) {
             await runManualAnalysis(manualPayload);
@@ -230,6 +282,10 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                     const normalized = normalizeResultPayload(payload.payload, resolvedTicker);
                     if (normalized) {
                         setAnalysisData(normalized);
+                        setScorecardResult(normalized.scorecard ?? null);
+                        if (normalized.scorecard?.scoring_mode) {
+                            setScorecardMode(normalized.scorecard.scoring_mode);
+                        }
                         onDataLoaded?.(normalized.metrics);
                     } else {
                         setError('Unexpected analysis response.');
@@ -246,7 +302,7 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
             setError('Backend analysis failed or timed out. Please ensure the backend is running and try again.');
             finalizeAnalysis();
         };
-    }, [ticker, closeEventSource, runManualAnalysis, BASE_URL, finalizeAnalysis]);
+    }, [ticker, closeEventSource, runManualAnalysis, BASE_URL, finalizeAnalysis, onDataLoaded]);
 
     useEffect(() => {
         if (!forceTicker) {
@@ -298,6 +354,65 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
         }
     }, [API_KEY, analysisData?.ticker, BASE_URL]);
 
+    const handleScorecardModeChange = useCallback(async (mode: 'credit' | 'investment') => {
+        if (!scorecardResult?.inputs) {
+            setScorecardMode(mode);
+            return;
+        }
+        setScorecardMode(mode);
+        try {
+            const response = await fetch(`${BASE_URL}/api/scorecard/analyze`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': API_KEY,
+                },
+                body: JSON.stringify({
+                    ...scorecardResult.inputs,
+                    scoring_mode: mode,
+                }),
+            });
+            const body = await response.json();
+            if (!response.ok) {
+                throw new Error(body?.detail || 'Scorecard re-run failed.');
+            }
+            setScorecardResult(body as ScorecardResult);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Scorecard re-run failed.';
+            setError(message);
+        }
+    }, [API_KEY, BASE_URL, scorecardResult]);
+
+    const handleScorecardSelect = useCallback((item: ScorecardHistoryItem) => {
+        setScorecardResult(item.result);
+        setScorecardMode(item.result.scoring_mode || 'credit');
+        setScorecardView('simple');
+    }, []);
+
+    const handleScorecardRecalculate = useCallback(async (item: ScorecardHistoryItem) => {
+        try {
+            const response = await fetch(`${BASE_URL}/api/scorecard/analyze`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-API-Key': API_KEY,
+                },
+                body: JSON.stringify({
+                    ...item.inputs,
+                    scoring_mode: item.result.scoring_mode,
+                }),
+            });
+            const body = await response.json();
+            if (!response.ok) {
+                throw new Error(body?.detail || 'Scorecard recalculation failed.');
+            }
+            setScorecardResult(body as ScorecardResult);
+        } catch (err) {
+            const message = err instanceof Error ? err.message : 'Scorecard recalculation failed.';
+            setError(message);
+        }
+    }, [API_KEY, BASE_URL]);
+
     return (
         <main className="terminal-content">
             <ManualEntryModal
@@ -326,10 +441,10 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                             style={{
                                 color:
                                     analysisData?.color_signal === 'GREEN'
-                                        ? '#00ff41'
+                                        ? '#059669'
                                         : analysisData?.color_signal === 'RED'
-                                            ? '#ef4444'
-                                            : '#f59e0b',
+                                            ? '#DC2626'
+                                            : '#D97706',
                                 fontSize: '11px',
                                 maxWidth: '240px',
                                 lineHeight: '1.2',
@@ -346,10 +461,10 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                             style={{
                                 color:
                                     (analysisData?.metrics.current_z_score || 0) > 3.0
-                                        ? '#00ff41'
+                                        ? '#059669'
                                         : (analysisData?.metrics.current_z_score || 0) > 1.8
-                                            ? '#f59e0b'
-                                            : '#ef4444',
+                                            ? '#D97706'
+                                            : '#DC2626',
                             }}
                         >
                             {analysisData?.metrics.current_z_score ?? '---'}
@@ -365,7 +480,10 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                         className="ticker-input"
                         placeholder="ENTER TICKER..."
                         value={ticker}
-                        onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                        onChange={(e) => {
+                            const val = e.target.value.toUpperCase();
+                            if (val.length <= 10) setTicker(val);
+                        }}
                         onKeyDown={(e) => {
                             if (e.key === 'Enter' && !isAnalyzing) {
                                 void handleAnalyze();
@@ -395,9 +513,9 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                                 style={{
                                     marginBottom: '16px',
                                     padding: '12px',
-                                    background: 'rgba(239, 68, 68, 0.1)',
-                                    border: '1px solid #ef4444',
-                                    color: '#ef4444',
+                                    background: '#FEE2E2',
+                                    border: '1px solid #F87171',
+                                    color: '#DC2626',
                                     fontSize: '12px',
                                 }}
                             >
@@ -408,7 +526,7 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                             <div className="stream-log">
                                 {progress.map((step, index) => (
                                     <div key={`${step}-${index}`} className="stream-line">
-                                        <span style={{ color: '#00ff41' }}>[OK]</span> {step}
+                                        <span style={{ color: '#059669' }}>[OK]</span> {step}
                                     </div>
                                 ))}
                                 <div className="stream-line cursor-blink">{'>'} FORENSIC_ANALYSIS_IN_PROGRESS...</div>
@@ -416,6 +534,20 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                         )}
                         {!isAnalyzing && analysisData && (
                             <div className="metrics-view">
+                                {FEATURES.SCORECARD_PANEL && scorecardResult && (
+                                    <div className="stream-log" style={{ marginBottom: '16px' }}>
+                                        <div className="stream-line">-&gt; [1/5] Validating inputs...</div>
+                                        <div className="stream-line">-&gt; [2/5] Running metrics engine...</div>
+                                        <div className="stream-line">
+                                            -&gt; [3/5] Scoring: Health {scorecardResult.health_score}/100 - {scorecardResult.health_band}
+                                        </div>
+                                        <div className="stream-line">-&gt; [4/5] Generating narrative...</div>
+                                        <div className="stream-line">
+                                            -&gt; [5/5] Persisting to database (model v{scorecardResult.scoring_model_version})...
+                                        </div>
+                                        <div className="stream-line">-&gt; COMPLETE. Analysis ID: {scorecardResult.analysis_id ?? 'N/A'}</div>
+                                    </div>
+                                )}
                                 <h4 className="grid-label" style={{ marginBottom: '16px' }}>
                                     Senior Tier Metrics Table (5Y Trends)
                                 </h4>
@@ -435,7 +567,7 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                                             {analysisData.metrics.yearly.map((year) => (
                                                 <td key={year.year}>{year.revenue.toLocaleString()}M</td>
                                             ))}
-                                            <td style={{ color: '#00ff41' }}>
+                                            <td style={{ color: '#059669' }}>
                                                 {formatMetric(analysisData.metrics.revenue_cagr_pct, '%')}
                                             </td>
                                         </tr>
@@ -444,14 +576,14 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                                             {analysisData.metrics.yearly.map((year) => (
                                                 <td key={year.year}>{year.dso}</td>
                                             ))}
-                                            <td style={{ color: '#f59e0b' }}>COLLECTION</td>
+                                            <td style={{ color: '#D97706' }}>COLLECTION</td>
                                         </tr>
                                         <tr>
                                             <td>INV_TURNOVER</td>
                                             {analysisData.metrics.yearly.map((year) => (
                                                 <td key={year.year}>{formatMetric(year.inventory_turnover, 'x')}</td>
                                             ))}
-                                            <td style={{ color: '#0ea5e9' }}>VELOCITY</td>
+                                            <td style={{ color: '#0891B2' }}>VELOCITY</td>
                                         </tr>
                                         <tr>
                                             <td>FCF_CONV_PCT</td>
@@ -462,8 +594,8 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                                                 style={{
                                                     color:
                                                         analysisData.metrics.current_fcf_conversion_pct > 80
-                                                            ? '#00ff41'
-                                                            : '#ef4444',
+                                                            ? '#059669'
+                                                            : '#DC2626',
                                                 }}
                                             >
                                                 CASH_GEN
@@ -474,21 +606,21 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                                             {analysisData.metrics.yearly.map((year) => (
                                                 <td key={year.year}>{formatMetric(year.ebitda_margin, '%')}</td>
                                             ))}
-                                            <td style={{ color: '#00ff41' }}>{analysisData.metrics.margin_signal}</td>
+                                            <td style={{ color: '#059669' }}>{analysisData.metrics.margin_signal}</td>
                                         </tr>
                                         <tr>
                                             <td>ASSET_TURNOVER</td>
                                             {analysisData.metrics.yearly.map((year) => (
                                                 <td key={year.year}>{formatMetric(year.asset_turnover, 'x', 2)}</td>
                                             ))}
-                                            <td style={{ color: '#0ea5e9' }}>EFFICIENCY</td>
+                                            <td style={{ color: '#0891B2' }}>EFFICIENCY</td>
                                         </tr>
                                         <tr>
                                             <td>RETURN_ON_EQUITY</td>
                                             {analysisData.metrics.yearly.map((year) => (
                                                 <td key={year.year}>{formatMetric(year.roe, '%')}</td>
                                             ))}
-                                            <td style={{ color: '#00ff41' }}>ROE</td>
+                                            <td style={{ color: '#059669' }}>ROE</td>
                                         </tr>
                                         <tr>
                                             <td>ALTMAN_Z_SCORE</td>
@@ -499,8 +631,8 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                                                 style={{
                                                     color:
                                                         analysisData.metrics.current_z_score > 1.8
-                                                            ? '#00ff41'
-                                                            : '#ef4444',
+                                                            ? '#059669'
+                                                            : '#DC2626',
                                                 }}
                                             >
                                                 {analysisData.metrics.solvency_signal}
@@ -523,75 +655,116 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                         <span className="grid-label">Analyst Verdict & AI Diagnostics</span>
                     </div>
                     <div className="panel-body diagnosis-container">
-                        {!analysisData && !isAnalyzing && (
-                            <div className="empty-state-terminal">
-                                <p className="terminal-text" style={{ textAlign: 'center' }}>
-                                    AWAITING COMMAND...
-                                </p>
-                            </div>
-                        )}
-                        {(analysisData || isAnalyzing) && (
-                            <>
-                                <div className="diagnosis-card">
-                                    <h4 className="grid-label">Pattern Diagnosis</h4>
-                                    <p className="terminal-text">
-                                        {analysisData?.analysis.pattern_diagnosis || 'ANALYZING PATTERNS...'}
+                        {FEATURES.SCORECARD_PANEL ? (
+                            scorecardResult ? (
+                                <>
+                                    <ScorecardPanel
+                                        result={scorecardResult}
+                                        view={scorecardView}
+                                        mode={scorecardMode}
+                                        onModeChange={handleScorecardModeChange}
+                                        onViewChange={setScorecardView}
+                                    />
+                                    {FEATURES.SCORECARD_HISTORY && (
+                                        <>
+                                            {scorecardHistoryError && (
+                                                <div style={{ color: '#DC2626', fontSize: '11px' }}>
+                                                    {scorecardHistoryError}
+                                                </div>
+                                            )}
+                                            <AnalysisHistory
+                                                items={scorecardHistory}
+                                                onSelect={handleScorecardSelect}
+                                                onRecalculate={handleScorecardRecalculate}
+                                            />
+                                        </>
+                                    )}
+                                </>
+                            ) : (
+                                <div className="empty-state-terminal">
+                                    <p className="terminal-text" style={{ textAlign: 'center' }}>
+                                        AWAITING SCORECARD...
                                     </p>
+                                    {analysisData?.scorecard_error && (
+                                        <p style={{ marginTop: '8px', color: '#DC2626', fontSize: '11px' }}>
+                                            SCORECARD ERROR: {analysisData.scorecard_error}
+                                        </p>
+                                    )}
                                 </div>
-                                <div className="diagnosis-card highlight-card">
-                                    <h4 className="grid-label">Analyst Verdict</h4>
-                                    <div className="terminal-text" style={{ fontSize: '15px' }}>
-                                        <span style={{ color: '#0ea5e9', fontWeight: 'bold' }}>
-                                            {analysisData?.analysis.analyst_verdict_archetype || 'CALCULATING ARCHETYPE...'}
-                                        </span>
-                                        <p style={{ marginTop: '8px' }}>
-                                            {analysisData?.analysis.analyst_verdict_summary || 'GEN_SUM_IN_PROGRESS...'}
+                            )
+                        ) : (
+                            <>
+                                {!analysisData && !isAnalyzing && (
+                                    <div className="empty-state-terminal">
+                                        <p className="terminal-text" style={{ textAlign: 'center' }}>
+                                            AWAITING COMMAND...
                                         </p>
                                     </div>
-                                </div>
-                                {!!analysisData?.analysis.flags?.length && (
-                                    <div className="diagnosis-card" style={{ borderBottom: 'none' }}>
-                                        <h4 className="grid-label">Forensic Risk Flags</h4>
-                                        <div
-                                            className="flags-list"
-                                            style={{
-                                                marginTop: '12px',
-                                                display: 'flex',
-                                                flexDirection: 'column',
-                                                gap: '12px',
-                                            }}
-                                        >
-                                            {analysisData.analysis.flags.map((flag, index) => (
-                                                <div
-                                                    key={`${flag.name}-${index}`}
-                                                    className="flag-item"
-                                                    style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}
-                                                >
-                                                    <span style={{ fontSize: '18px' }}>{flag.emoji || '!'}</span>
-                                                    <div>
-                                                        <div
-                                                            style={{
-                                                                color: '#fff',
-                                                                fontSize: '12px',
-                                                                fontWeight: 'bold',
-                                                            }}
-                                                        >
-                                                            {flag.name}
-                                                        </div>
-                                                        <div
-                                                            style={{
-                                                                color: 'var(--text-muted)',
-                                                                fontSize: '11px',
-                                                                marginTop: '2px',
-                                                            }}
-                                                        >
-                                                            {flag.explanation}
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            ))}
+                                )}
+                                {(analysisData || isAnalyzing) && (
+                                    <>
+                                        <div className="diagnosis-card">
+                                            <h4 className="grid-label">Pattern Diagnosis</h4>
+                                            <p className="terminal-text">
+                                                {analysisData?.analysis.pattern_diagnosis || 'ANALYZING PATTERNS...'}
+                                            </p>
                                         </div>
-                                    </div>
+                                        <div className="diagnosis-card highlight-card">
+                                            <h4 className="grid-label">Analyst Verdict</h4>
+                                            <div className="terminal-text" style={{ fontSize: '15px' }}>
+                                                <span style={{ color: '#2563EB', fontWeight: 'bold' }}>
+                                                    {analysisData?.analysis.analyst_verdict_archetype || 'CALCULATING ARCHETYPE...'}
+                                                </span>
+                                                <p style={{ marginTop: '8px' }}>
+                                                    {analysisData?.analysis.analyst_verdict_summary || 'GEN_SUM_IN_PROGRESS...'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        {!!analysisData?.analysis.flags?.length && (
+                                            <div className="diagnosis-card" style={{ borderBottom: 'none' }}>
+                                                <h4 className="grid-label">Forensic Risk Flags</h4>
+                                                <div
+                                                    className="flags-list"
+                                                    style={{
+                                                        marginTop: '12px',
+                                                        display: 'flex',
+                                                        flexDirection: 'column',
+                                                        gap: '12px',
+                                                    }}
+                                                >
+                                                    {analysisData.analysis.flags.map((flag, index) => (
+                                                        <div
+                                                            key={`${flag.name}-${index}`}
+                                                            className="flag-item"
+                                                            style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}
+                                                        >
+                                                            <span style={{ fontSize: '18px' }}>{flag.emoji || '!'}</span>
+                                                            <div>
+                                                                <div
+                                                                    style={{
+                                                                        color: '#0F172A',
+                                                                        fontSize: '12px',
+                                                                        fontWeight: 'bold',
+                                                                    }}
+                                                                >
+                                                                    {flag.name}
+                                                                </div>
+                                                                <div
+                                                                    style={{
+                                                                        color: 'var(--text-muted)',
+                                                                        fontSize: '11px',
+                                                                        marginTop: '2px',
+                                                                    }}
+                                                                >
+                                                                    {flag.explanation}
+                                                                </div>
+                                                            </div>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </div>
+                                        )}
+                                    </>
                                 )}
                             </>
                         )}
@@ -617,17 +790,17 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                 }
 
                 .panel-left {
-                    background: #000;
+                    background: var(--bg-surface);
                 }
 
                 .panel-right {
-                    background: #050505;
+                    background: var(--bg-surface);
                     border-right: none;
                 }
 
                 .panel-header-sub {
                     padding: 8px 16px;
-                    background: #111;
+                    background: var(--bg-elevated);
                     border-bottom: 1px solid var(--border);
                 }
 
@@ -655,9 +828,9 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                 }
 
                 .ticker-input {
-                    background: #000;
+                    background: var(--bg-elevated);
                     border: 1px solid var(--border);
-                    color: var(--primary);
+                    color: var(--text-primary);
                     font-family: var(--font-mono);
                     font-size: 13px;
                     padding: 8px 12px;
@@ -670,8 +843,8 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                 }
 
                 .analyze-btn {
-                    background: var(--primary);
-                    color: #000;
+                    background: linear-gradient(135deg,#2563EB,#1D4ED8);
+                    color: #FFFFFF;
                     border: none;
                     font-weight: 700;
                     font-size: 11px;
@@ -682,12 +855,12 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                 }
 
                 .analyze-btn:hover {
-                    background: #7dd3fc;
+                    background: linear-gradient(135deg,#1D4ED8,#1E40AF);
                 }
 
                 .analyze-btn:disabled {
-                    background: #334155;
-                    color: #94a3b8;
+                    background: #CBD5E1;
+                    color: #64748B;
                     cursor: not-allowed;
                 }
 
@@ -704,7 +877,7 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                 }
 
                 .pdf-btn:hover {
-                    background: rgba(14, 165, 233, 0.1);
+                    background: rgba(37, 99, 235, 0.1);
                 }
 
                 .diagnosis-container {
@@ -720,8 +893,8 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
 
                 .highlight-card {
                     padding: 20px;
-                    background: rgba(14, 165, 233, 0.05);
-                    border: 1px solid var(--primary);
+                    background: #EFF6FF;
+                    border: 1px solid #DBEAFE;
                 }
 
                 .terminal-text {

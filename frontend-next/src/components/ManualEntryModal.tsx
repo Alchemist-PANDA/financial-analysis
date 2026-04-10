@@ -207,7 +207,7 @@ const ManualEntryModal = ({ isOpen, onClose, onSubmit }: ManualEntryModalProps) 
                     <h3 className="grid-label">MANUAL FORENSIC DATA ENTRY</h3>
                     <button
                         onClick={onClose}
-                        style={{ background: 'none', border: 'none', color: '#fff', cursor: 'pointer', fontSize: '20px' }}
+                        style={{ background: 'none', border: 'none', color: 'var(--text-primary)', cursor: 'pointer', fontSize: '20px' }}
                         aria-label="Close manual entry modal"
                     >
                         &times;
@@ -289,7 +289,7 @@ const ManualEntryModal = ({ isOpen, onClose, onSubmit }: ManualEntryModalProps) 
                     left: 0;
                     right: 0;
                     bottom: 0;
-                    background: rgba(0, 0, 0, 0.9);
+                    background: rgba(15, 23, 42, 0.45);
                     display: flex;
                     align-items: center;
                     justify-content: center;
@@ -298,8 +298,9 @@ const ManualEntryModal = ({ isOpen, onClose, onSubmit }: ManualEntryModalProps) 
                 }
 
                 .modal-container {
-                    background: #050505;
+                    background: var(--bg-surface);
                     border: 1px solid var(--border);
+                    box-shadow: 0 4px 20px rgba(0,0,0,0.10);
                     max-width: 1020px;
                     width: 100%;
                     max-height: 90vh;
@@ -313,7 +314,7 @@ const ManualEntryModal = ({ isOpen, onClose, onSubmit }: ManualEntryModalProps) 
                     display: flex;
                     justify-content: space-between;
                     align-items: center;
-                    background: #111;
+                    background: var(--bg-elevated);
                 }
 
                 .modal-body {
@@ -327,15 +328,15 @@ const ManualEntryModal = ({ isOpen, onClose, onSubmit }: ManualEntryModalProps) 
                     display: flex;
                     justify-content: flex-end;
                     gap: 12px;
-                    background: #111;
+                    background: var(--bg-elevated);
                 }
 
                 .modal-input {
                     display: block;
                     width: 100%;
-                    background: #000;
+                    background: var(--bg-elevated);
                     border: 1px solid var(--border);
-                    color: var(--foreground);
+                    color: var(--text-primary);
                     padding: 10px;
                     font-size: 13px;
                     margin-top: 8px;
@@ -356,12 +357,12 @@ const ManualEntryModal = ({ isOpen, onClose, onSubmit }: ManualEntryModalProps) 
                     text-align: left;
                     padding: 8px;
                     color: var(--text-muted);
-                    background: #111;
+                    background: var(--bg-elevated);
                 }
 
                 .manual-table td {
                     padding: 4px;
-                    border: 1px solid #111;
+                    border: 1px solid var(--border);
                 }
 
                 .metric-name {
@@ -374,19 +375,19 @@ const ManualEntryModal = ({ isOpen, onClose, onSubmit }: ManualEntryModalProps) 
                     width: 100%;
                     background: transparent;
                     border: none;
-                    color: var(--primary);
+                    color: var(--text-primary);
                     text-align: right;
                     padding: 4px;
                     outline: none;
                 }
 
                 .table-input:focus {
-                    background: rgba(14, 165, 233, 0.1);
+                    background: rgba(37, 99, 235, 0.10);
                 }
 
                 .submit-btn {
-                    background: var(--primary);
-                    color: #000;
+                    background: linear-gradient(135deg,#2563EB,#1D4ED8);
+                    color: #FFFFFF;
                     border: none;
                     padding: 10px 24px;
                     font-weight: 700;

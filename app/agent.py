@@ -8,6 +8,7 @@ import sys
 import os
 
 from config import GROQ_API_KEY, MODEL_NAME, MAX_TOKENS
+from app.engine.narrative import build_narrative_prompt, validate_narrative
 
 
 def run_snapshot_agent(company_data: dict, metrics: dict, search_results: list = None) -> dict:
@@ -108,49 +109,85 @@ Return ONLY the JSON object."""
 def scrape_extended_financials(ticker: str) -> dict:
     """
     Scrapes COGS, Interest Expense, Current Assets, Current Liabilities
-    from Yahoo Finance using yfinance.
-    Returns a dict with only these 4 fields.
-    Falls back to 0 for any field it cannot find so existing metrics are never disrupted.
+    from Yahoo Finance using yfinance. 
+    Runs in a background thread with a 5-second timeout to prevent blocking.
     """
-    extended = {
-        "cogs": 0,
-        "interest_expense": 0,
-        "current_assets": 0,
-        "current_liabilities": 0,
-    }
-    try:
-        import yfinance as yf
-        stock = yf.Ticker(ticker)
+    import concurrent.futures
 
-        # Income Statement — COGS and Interest Expense
-        income_stmt = stock.financials
-        if income_stmt is not None and not income_stmt.empty:
-            if "Cost Of Revenue" in income_stmt.index:
-                extended["cogs"] = float(
-                    income_stmt.loc["Cost Of Revenue"].iloc[0]
-                ) / 1_000_000
-            if "Interest Expense" in income_stmt.index:
-                extended["interest_expense"] = abs(float(
-                    income_stmt.loc["Interest Expense"].iloc[0]
-                )) / 1_000_000
+    def _fetch():
+        extended = {
+            "cogs": 0,
+            "interest_expense": 0,
+            "current_assets": 0,
+            "current_liabilities": 0,
+        }
+        try:
+            import yfinance as yf
+            stock = yf.Ticker(ticker)
 
-        # Balance Sheet — Current Assets, Current Liabilities, Total Assets
-        balance_sheet = stock.balance_sheet
-        if balance_sheet is not None and not balance_sheet.empty:
-            if "Current Assets" in balance_sheet.index:
-                extended["current_assets"] = float(
-                    balance_sheet.loc["Current Assets"].iloc[0]
-                ) / 1_000_000
-            if "Current Liabilities" in balance_sheet.index:
-                extended["current_liabilities"] = float(
-                    balance_sheet.loc["Current Liabilities"].iloc[0]
-                ) / 1_000_000
-            if "Total Assets" in balance_sheet.index:
-                extended["total_assets"] = float(
-                    balance_sheet.loc["Total Assets"].iloc[0]
-                ) / 1_000_000
+            # Income Statement
+            income_stmt = stock.financials
+            if income_stmt is not None and not income_stmt.empty:
+                if "Cost Of Revenue" in income_stmt.index:
+                    extended["cogs"] = float(income_stmt.loc["Cost Of Revenue"].iloc[0]) / 1_000_000
+                if "Interest Expense" in income_stmt.index:
+                    extended["interest_expense"] = abs(float(income_stmt.loc["Interest Expense"].iloc[0])) / 1_000_000
 
-    except Exception:
-        pass  # On any failure, all fields stay 0 — existing pipeline is unaffected
+            # Balance Sheet
+            balance_sheet = stock.balance_sheet
+            if balance_sheet is not None and not balance_sheet.empty:
+                if "Current Assets" in balance_sheet.index:
+                    extended["current_assets"] = float(balance_sheet.loc["Current Assets"].iloc[0]) / 1_000_000
+                if "Current Liabilities" in balance_sheet.index:
+                    extended["current_liabilities"] = float(balance_sheet.loc["Current Liabilities"].iloc[0]) / 1_000_000
+                if "Total Assets" in balance_sheet.index:
+                    extended["total_assets"] = float(balance_sheet.loc["Total Assets"].iloc[0]) / 1_000_000
+        except Exception:
+            pass
+        return extended
 
-    return extended
+    with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+        future = executor.submit(_fetch)
+        try:
+            return future.result(timeout=5)  # Strict 5s timeout
+        except concurrent.futures.TimeoutError:
+            print(f"[SCRAPER TIMEOUT] Failed to fetch extended data for {ticker} in 5s.")
+            return {
+                "cogs": 0,
+                "interest_expense": 0,
+                "current_assets": 0,
+                "current_liabilities": 0,
+            }
+
+
+def get_llm_client():
+    if not GROQ_API_KEY:
+        raise ValueError("GROQ_API_KEY is not set.")
+    from groq import Groq
+    return Groq(api_key=GROQ_API_KEY)
+
+
+def generate_scorecard_narrative(result: dict) -> str:
+    prompt = build_narrative_prompt(result)
+    client = get_llm_client()
+
+    narrative = ""
+    for attempt in range(2):
+        response = client.chat.completions.create(
+            model=MODEL_NAME,
+            max_tokens=MAX_TOKENS,
+            messages=[
+                {
+                    "role": "system",
+                    "content": "You are a senior equity and credit analyst. Respond with the required structure only.",
+                },
+                {"role": "user", "content": prompt},
+            ],
+        )
+        narrative = (response.choices[0].message.content or "").strip()
+        if validate_narrative(narrative):
+            return narrative
+        if attempt == 0:
+            print("WARN: Narrative failed validation (missing numbers). Retrying...")
+
+    return "[AUTO-GENERATED - verify numbers] " + narrative

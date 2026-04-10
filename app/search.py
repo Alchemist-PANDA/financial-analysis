@@ -53,7 +53,6 @@ def get_company_news(company_name: str, max_results: int = 5) -> list[dict]:
             finally:
                 warnings.simplefilter = original_simplefilter
     except Exception as e:
-        print(f"DEBUG: Search failed for '{company_name}': {e}")
         # Return an empty list if search fails so the pipeline doesn't crash
         return []
         

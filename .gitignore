@@ -52,5 +52,8 @@ financial_agent.db
 frontend-next/.next/
 frontend-next/node_modules/
 PROD_VARIABLES.md
+test_report.pdf
+test_report_*.pdf
+*.log
 
 .vercel

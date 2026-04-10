@@ -1,7 +1,7 @@
 'use client';
 
 import Sidebar from "@/components/Sidebar";
-import MainTerminal from "@/components/MainTerminal";
+import MainTerminal, { type MetricsPayload as TerminalMetricsPayload } from "@/components/MainTerminal";
 import { useState } from "react";
 
 import ComparisonTerminal from "@/components/ComparisonTerminal";
@@ -71,14 +71,47 @@ export default function Home() {
     setRefreshTrigger(prev => prev + 1);
   };
 
-  const handleDataLoaded = (data: any) => {
+  const handleDataLoaded = (data: TerminalMetricsPayload) => {
     // Map backend metrics to dashboard props
     // This provides a consistent bridge between the streaming terminal and static panels
+    const mappedYearly: FinancialData["yearly"] = (data.yearly || []).map((year) => ({
+      year: year.year,
+      revenue: year.revenue ?? 0,
+      ebitda: 0,
+      net_income: 0,
+      ebitda_margin: year.ebitda_margin ?? 0,
+      net_margin: 0,
+      net_debt: 0,
+      leverage: 0,
+      asset_turnover: year.asset_turnover ?? 0,
+      equity_multiplier: 0,
+      roe: year.roe ?? 0,
+      dso: year.dso ?? 0,
+      inventory_turnover: year.inventory_turnover ?? 0,
+      fcf_conversion_pct: year.fcf_conversion_pct ?? 0,
+      z_score: year.z_score ?? 0,
+      roa: 0,
+      gross_margin: 0,
+      debt_equity: 0,
+      current_ratio: 0,
+      quick_ratio: 0,
+      cash_ratio: 0,
+      interest_coverage: 0,
+      pe_ratio: 0,
+      pb_ratio: 0,
+      ev_ebitda: 0,
+    }));
+
     setFinancialData({
       ...EMPTY_FINANCIAL_DATA,
-      ...data,
-      current_roe: data.yearly?.[0]?.roe || data.current_roe || 0,
-      current_dso: data.yearly?.[0]?.dso || data.current_dso || 0,
+      yearly: mappedYearly.length ? mappedYearly : EMPTY_FINANCIAL_DATA.yearly,
+      revenue_cagr_pct: data.revenue_cagr_pct ?? 0,
+      margin_signal: data.margin_signal ?? "STABLE",
+      solvency_signal: data.solvency_signal ?? "GREY_ZONE",
+      current_roe: data.yearly?.[0]?.roe ?? 0,
+      current_dso: data.yearly?.[0]?.dso ?? 0,
+      current_z_score: data.current_z_score ?? 0,
+      current_fcf_conversion_pct: data.current_fcf_conversion_pct ?? 0,
     });
   };
 
@@ -104,7 +137,7 @@ export default function Home() {
         </div>
 
         {FEATURES.METRICS_PANEL && financialData && currentView === 'live' && (
-          <div style={{ padding: '16px', borderTop: '1px solid var(--border)', background: '#020202' }}>
+          <div style={{ padding: '16px', borderTop: '1px solid var(--border)', background: 'var(--background)' }}>
             <h3 className="grid-label" style={{ marginBottom: '16px', color: 'var(--primary)' }}>
               Forensic Health Dashboard: {selectedTicker}
             </h3>
@@ -113,7 +146,7 @@ export default function Home() {
         )}
 
         {FEATURES.COMPARISON_BOARD && currentView === 'compare' && (
-          <div style={{ padding: '16px', borderTop: '1px solid var(--border)', background: '#020202' }}>
+          <div style={{ padding: '16px', borderTop: '1px solid var(--border)', background: 'var(--background)' }}>
             <ComparisonBoard
               companyA={financialData || EMPTY_FINANCIAL_DATA}
               companyB={EMPTY_FINANCIAL_DATA}

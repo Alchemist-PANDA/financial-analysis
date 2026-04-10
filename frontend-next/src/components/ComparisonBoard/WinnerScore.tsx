@@ -17,8 +17,8 @@ const WinnerScore = ({ companyLabel, strongerMetricCount, totalMetrics = 50 }: W
             <style jsx>{`
                 .winner-score {
                     padding: 12px 16px;
-                    border: 1px solid var(--primary);
-                    background: rgba(14, 165, 233, 0.08);
+                    border: 1px solid #DBEAFE;
+                    background: #EFF6FF;
                     display: flex;
                     flex-direction: column;
                     gap: 8px;

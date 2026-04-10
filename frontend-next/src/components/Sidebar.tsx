@@ -89,7 +89,7 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
                         </div>
                     )}
                     {!isLoading && historyError && (
-                        <div style={{ color: '#ef4444', fontSize: '11px' }}>
+                        <div style={{ color: '#DC2626', fontSize: '11px' }}>
                             {historyError}
                         </div>
                     )}
@@ -107,7 +107,7 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
                         >
                             <div className="history-ticker">{item.ticker}</div>
                             <div className="history-name">{item.name}</div>
-                            <div style={{ fontSize: '9px', color: 'rgba(255,255,255,0.45)', marginTop: '4px' }}>
+                            <div style={{ fontSize: '9px', color: 'rgba(15, 23, 42, 0.45)', marginTop: '4px' }}>
                                 {item.archetype}
                             </div>
                         </button>
@@ -130,18 +130,20 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
                 }
 
                 .sidebar-btn:hover {
-                    background: rgba(255, 255, 255, 0.05);
+                    background: var(--bg-hover);
                     color: var(--foreground);
                 }
 
                 .sidebar-btn-active {
-                    background: rgba(14, 165, 233, 0.1);
+                    background: linear-gradient(135deg, #EFF6FF, #F5F3FF);
+                    border: 1px solid #DBEAFE;
                     color: var(--primary);
+                    font-weight: 600;
                 }
 
                 .history-item {
                     padding: 12px;
-                    background: rgba(255, 255, 255, 0.02);
+                    background: var(--bg-surface);
                     border: 1px solid var(--border);
                     cursor: pointer;
                     transition: all 0.2s;
@@ -149,7 +151,7 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
                 }
 
                 .history-item:hover {
-                    background: rgba(255, 255, 255, 0.05);
+                    background: var(--bg-hover);
                     border-color: var(--secondary);
                 }
 

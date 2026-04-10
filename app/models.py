@@ -30,3 +30,20 @@ class Watchlist(Base):
     added_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
     )
+
+
+class ScorecardAnalysis(Base):
+    """Stores deterministic scorecard results for the new health engine."""
+    __tablename__ = "scorecard_analyses"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    company_name: Mapped[str] = mapped_column(String(255))
+    scoring_mode: Mapped[str] = mapped_column(String(20))
+    scoring_model_version: Mapped[str] = mapped_column(String(20))
+    health_score: Mapped[int]
+    health_band: Mapped[str] = mapped_column(String(50))
+    inputs_data: Mapped[dict] = mapped_column(JSON)
+    result_data: Mapped[dict] = mapped_column(JSON)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(timezone.utc)
+    )

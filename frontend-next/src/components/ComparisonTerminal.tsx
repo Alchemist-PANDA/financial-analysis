@@ -1,6 +1,9 @@
 'use client';
 
 import React, { useMemo, useState } from 'react';
+import { FEATURES } from '@/config/features';
+import ScorecardComparison from '@/components/ComparisonBoard/Scorecard/ScorecardComparison';
+import type { ScorecardResult } from '@/components/MetricsPanel/Scorecard/types';
 
 type CompareAnalysis = {
     ticker: string;
@@ -18,6 +21,7 @@ type CompareAnalysis = {
         analyst_verdict_summary: string;
         retail_verdict?: string;
     };
+    scorecard?: ScorecardResult;
 };
 
 type ComparePayload = {
@@ -30,9 +34,9 @@ type ComparePayload = {
 };
 
 const scoreColor = (signal: 'GREEN' | 'YELLOW' | 'RED') => {
-    if (signal === 'GREEN') return '#00ff41';
-    if (signal === 'RED') return '#ef4444';
-    return '#f59e0b';
+    if (signal === 'GREEN') return '#059669';
+    if (signal === 'RED') return '#DC2626';
+    return '#D97706';
 };
 
 const formatMetric = (value: unknown, precision: number, suffix = '') => {
@@ -133,7 +137,10 @@ const ComparisonTerminal = () => {
                     <input
                         className="ticker-input"
                         value={tickerA}
-                        onChange={(e) => setTickerA(e.target.value.toUpperCase())}
+                        onChange={(e) => {
+                            const val = e.target.value.toUpperCase();
+                            if (val.length <= 10) setTickerA(val);
+                        }}
                     />
                 </div>
                 <div className="input-group">
@@ -141,7 +148,10 @@ const ComparisonTerminal = () => {
                     <input
                         className="ticker-input"
                         value={tickerB}
-                        onChange={(e) => setTickerB(e.target.value.toUpperCase())}
+                        onChange={(e) => {
+                            const val = e.target.value.toUpperCase();
+                            if (val.length <= 10) setTickerB(val);
+                        }}
                     />
                 </div>
                 <button className="analyze-btn compare-btn" onClick={() => void runComparison()} disabled={isComparing}>
@@ -230,6 +240,11 @@ const ComparisonTerminal = () => {
                             <strong>{result.verdict.winner}</strong> {result.verdict.summary}
                         </div>
                     </section>
+                    {FEATURES.SCORECARD_COMPARE && result.left.scorecard && result.right.scorecard && (
+                        <section style={{ marginTop: '16px' }}>
+                            <ScorecardComparison left={result.left.scorecard} right={result.right.scorecard} />
+                        </section>
+                    )}
                 </div>
             )}
 
@@ -247,7 +262,7 @@ const ComparisonTerminal = () => {
                     gap: 12px;
                     padding: 20px 16px;
                     border-bottom: 1px solid var(--border);
-                    background: #050505;
+                    background: var(--bg-elevated);
                     min-height: 80px;
                     flex-shrink: 0;
                 }
@@ -259,9 +274,9 @@ const ComparisonTerminal = () => {
                 }
 
                 .ticker-input {
-                    background: #000;
+                    background: var(--bg-elevated);
                     border: 1px solid var(--border);
-                    color: var(--primary);
+                    color: var(--text-primary);
                     font-family: var(--font-mono);
                     font-size: 13px;
                     padding: 8px 12px;
@@ -274,8 +289,8 @@ const ComparisonTerminal = () => {
                 }
 
                 .analyze-btn {
-                    background: var(--primary);
-                    color: #000;
+                    background: linear-gradient(135deg, #2563EB, #1D4ED8);
+                    color: #FFFFFF;
                     border: none;
                     font-weight: 700;
                     font-size: 11px;
@@ -285,12 +300,12 @@ const ComparisonTerminal = () => {
                 }
 
                 .analyze-btn:hover {
-                    background: #7dd3fc;
+                    background: linear-gradient(135deg, #1D4ED8, #1E40AF);
                 }
 
                 .analyze-btn:disabled {
-                    background: #334155;
-                    color: #94a3b8;
+                    background: #CBD5E1;
+                    color: #64748B;
                     cursor: not-allowed;
                 }
 
@@ -302,9 +317,9 @@ const ComparisonTerminal = () => {
                 .error-banner {
                     margin: 16px;
                     padding: 12px;
-                    border: 1px solid #ef4444;
-                    background: rgba(239, 68, 68, 0.12);
-                    color: #ef4444;
+                    border: 1px solid #F87171;
+                    background: #FEE2E2;
+                    color: #DC2626;
                     font-size: 12px;
                 }
 
@@ -333,7 +348,8 @@ const ComparisonTerminal = () => {
 
                 .summary-card {
                     border: 1px solid var(--border);
-                    background: #040404;
+                    background: var(--bg-surface);
+                    box-shadow: var(--shadow-card);
                     padding: 16px;
                 }
 
@@ -374,8 +390,8 @@ const ComparisonTerminal = () => {
 
                 .comparison-verdict-bar {
                     padding: 16px;
-                    border: 1px solid var(--primary);
-                    background: rgba(14, 165, 233, 0.08);
+                    border: 1px solid #DBEAFE;
+                    background: #EFF6FF;
                     display: flex;
                     flex-direction: column;
                     gap: 8px;
