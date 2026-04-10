@@ -14,9 +14,9 @@ load_dotenv(dotenv_path=_ROOT / ".env")
 GROQ_API_KEY: str = os.getenv("GROQ_API_KEY", "")
 
 # ── Model Settings ────────────────────────────────────────────────────────────
-# Free Groq models: llama-3.3-70b-versatile, mixtral-8x7b-32768
-MODEL_NAME: str = "llama-3.3-70b-versatile"
-MAX_TOKENS: int = 1000
+# Free Groq models: llama-3.3-70b-versatile, mixtral-8x7b-32768, llama-3.1-8b-instant
+MODEL_NAME: str = "llama-3.1-8b-instant"
+MAX_TOKENS: int = 1500
 
 # ── App Settings ──────────────────────────────────────────────────────────────
 APP_NAME: str    = "Financial Snapshot Agent"

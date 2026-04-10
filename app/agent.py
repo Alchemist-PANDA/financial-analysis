@@ -149,9 +149,9 @@ def scrape_extended_financials(ticker: str) -> dict:
     with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
         future = executor.submit(_fetch)
         try:
-            return future.result(timeout=5)  # Strict 5s timeout
+            return future.result(timeout=1)  # Strict 1s timeout
         except concurrent.futures.TimeoutError:
-            print(f"[SCRAPER TIMEOUT] Failed to fetch extended data for {ticker} in 5s.")
+            print(f"[SCRAPER TIMEOUT] Failed to fetch extended data for {ticker} in 1s.")
             return {
                 "cogs": 0,
                 "interest_expense": 0,
