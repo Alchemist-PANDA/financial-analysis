@@ -655,9 +655,84 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                         <span className="grid-label">Analyst Verdict & AI Diagnostics</span>
                     </div>
                     <div className="panel-body diagnosis-container">
-                        {FEATURES.SCORECARD_PANEL ? (
+                        {!analysisData && !isAnalyzing && !scorecardResult && (
+                            <div className="empty-state-terminal">
+                                <p className="terminal-text" style={{ textAlign: 'center' }}>
+                                    AWAITING COMMAND...
+                                </p>
+                            </div>
+                        )}
+
+                        {(analysisData || isAnalyzing) && (
+                            <>
+                                <div className="diagnosis-card">
+                                    <h4 className="grid-label">Pattern Diagnosis</h4>
+                                    <p className="terminal-text">
+                                        {analysisData?.analysis.pattern_diagnosis || 'ANALYZING PATTERNS...'}
+                                    </p>
+                                </div>
+                                <div className="diagnosis-card highlight-card">
+                                    <h4 className="grid-label">Analyst Verdict</h4>
+                                    <div className="terminal-text" style={{ fontSize: '15px' }}>
+                                        <span style={{ color: '#2563EB', fontWeight: 'bold' }}>
+                                            {analysisData?.analysis.analyst_verdict_archetype || 'CALCULATING ARCHETYPE...'}
+                                        </span>
+                                        <p style={{ marginTop: '8px' }}>
+                                            {analysisData?.analysis.analyst_verdict_summary || 'GEN_SUM_IN_PROGRESS...'}
+                                        </p>
+                                    </div>
+                                </div>
+                                {!!analysisData?.analysis.flags?.length && (
+                                    <div className="diagnosis-card" style={{ borderBottom: 'none' }}>
+                                        <h4 className="grid-label">Forensic Risk Flags</h4>
+                                        <div
+                                            className="flags-list"
+                                            style={{
+                                                marginTop: '12px',
+                                                display: 'flex',
+                                                flexDirection: 'column',
+                                                gap: '12px',
+                                            }}
+                                        >
+                                            {analysisData.analysis.flags.map((flag, index) => (
+                                                <div
+                                                    key={`${flag.name}-${index}`}
+                                                    className="flag-item"
+                                                    style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}
+                                                >
+                                                    <span style={{ fontSize: '18px' }}>{flag.emoji || '!'}</span>
+                                                    <div>
+                                                        <div
+                                                            style={{
+                                                                color: '#0F172A',
+                                                                fontSize: '12px',
+                                                                fontWeight: 'bold',
+                                                            }}
+                                                        >
+                                                            {flag.name}
+                                                        </div>
+                                                        <div
+                                                            style={{
+                                                                color: 'var(--text-muted)',
+                                                                fontSize: '11px',
+                                                                marginTop: '2px',
+                                                            }}
+                                                        >
+                                                            {flag.explanation}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                            </>
+                        )}
+
+                        {FEATURES.SCORECARD_PANEL && (
                             scorecardResult ? (
-                                <>
+                                <div style={{ marginTop: '20px', paddingTop: '20px', borderTop: '1px solid var(--border-subtle)' }}>
+                                    <h4 className="grid-label" style={{ marginBottom: '16px' }}>Forensic Scorecard</h4>
                                     <ScorecardPanel
                                         result={scorecardResult}
                                         view={scorecardView}
@@ -666,9 +741,9 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                                         onViewChange={setScorecardView}
                                     />
                                     {FEATURES.SCORECARD_HISTORY && (
-                                        <>
+                                        <div style={{ marginTop: '20px' }}>
                                             {scorecardHistoryError && (
-                                                <div style={{ color: '#DC2626', fontSize: '11px' }}>
+                                                <div style={{ color: '#DC2626', fontSize: '11px', marginBottom: '8px' }}>
                                                     {scorecardHistoryError}
                                                 </div>
                                             )}
@@ -677,96 +752,23 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                                                 onSelect={handleScorecardSelect}
                                                 onRecalculate={handleScorecardRecalculate}
                                             />
-                                        </>
-                                    )}
-                                </>
-                            ) : (
-                                <div className="empty-state-terminal">
-                                    <p className="terminal-text" style={{ textAlign: 'center' }}>
-                                        AWAITING SCORECARD...
-                                    </p>
-                                    {analysisData?.scorecard_error && (
-                                        <p style={{ marginTop: '8px', color: '#DC2626', fontSize: '11px' }}>
-                                            SCORECARD ERROR: {analysisData.scorecard_error}
-                                        </p>
+                                        </div>
                                     )}
                                 </div>
-                            )
-                        ) : (
-                            <>
-                                {!analysisData && !isAnalyzing && (
-                                    <div className="empty-state-terminal">
+                            ) : (
+                                (isAnalyzing) && (
+                                    <div className="empty-state-terminal" style={{ marginTop: '20px', borderTop: '1px solid var(--border-subtle)', paddingTop: '20px' }}>
                                         <p className="terminal-text" style={{ textAlign: 'center' }}>
-                                            AWAITING COMMAND...
+                                            AWAITING SCORECARD...
                                         </p>
-                                    </div>
-                                )}
-                                {(analysisData || isAnalyzing) && (
-                                    <>
-                                        <div className="diagnosis-card">
-                                            <h4 className="grid-label">Pattern Diagnosis</h4>
-                                            <p className="terminal-text">
-                                                {analysisData?.analysis.pattern_diagnosis || 'ANALYZING PATTERNS...'}
+                                        {analysisData?.scorecard_error && (
+                                            <p style={{ marginTop: '8px', color: '#DC2626', fontSize: '11px', textAlign: 'center' }}>
+                                                SCORECARD ERROR: {analysisData.scorecard_error}
                                             </p>
-                                        </div>
-                                        <div className="diagnosis-card highlight-card">
-                                            <h4 className="grid-label">Analyst Verdict</h4>
-                                            <div className="terminal-text" style={{ fontSize: '15px' }}>
-                                                <span style={{ color: '#2563EB', fontWeight: 'bold' }}>
-                                                    {analysisData?.analysis.analyst_verdict_archetype || 'CALCULATING ARCHETYPE...'}
-                                                </span>
-                                                <p style={{ marginTop: '8px' }}>
-                                                    {analysisData?.analysis.analyst_verdict_summary || 'GEN_SUM_IN_PROGRESS...'}
-                                                </p>
-                                            </div>
-                                        </div>
-                                        {!!analysisData?.analysis.flags?.length && (
-                                            <div className="diagnosis-card" style={{ borderBottom: 'none' }}>
-                                                <h4 className="grid-label">Forensic Risk Flags</h4>
-                                                <div
-                                                    className="flags-list"
-                                                    style={{
-                                                        marginTop: '12px',
-                                                        display: 'flex',
-                                                        flexDirection: 'column',
-                                                        gap: '12px',
-                                                    }}
-                                                >
-                                                    {analysisData.analysis.flags.map((flag, index) => (
-                                                        <div
-                                                            key={`${flag.name}-${index}`}
-                                                            className="flag-item"
-                                                            style={{ display: 'flex', gap: '12px', alignItems: 'flex-start' }}
-                                                        >
-                                                            <span style={{ fontSize: '18px' }}>{flag.emoji || '!'}</span>
-                                                            <div>
-                                                                <div
-                                                                    style={{
-                                                                        color: '#0F172A',
-                                                                        fontSize: '12px',
-                                                                        fontWeight: 'bold',
-                                                                    }}
-                                                                >
-                                                                    {flag.name}
-                                                                </div>
-                                                                <div
-                                                                    style={{
-                                                                        color: 'var(--text-muted)',
-                                                                        fontSize: '11px',
-                                                                        marginTop: '2px',
-                                                                    }}
-                                                                >
-                                                                    {flag.explanation}
-                                                                </div>
-                                                            </div>
-                                                        </div>
-                                                    ))}
-                                                </div>
-                                            </div>
                                         )}
-                                    </>
-                                )}
-                            </>
+                                    </div>
+                                )
+                            )
                         )}
                     </div>
                 </section>
