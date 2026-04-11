@@ -29,52 +29,79 @@ def fetch_historical_data_sync(ticker_symbol: str) -> Optional[Tuple[str, list]]
         bal = balance.fillna(0) if (balance is not None and not balance.empty) else pd.DataFrame()
         cf = cashflow.fillna(0) if (cashflow is not None and not cashflow.empty) else pd.DataFrame()
         
+        # Use balance sheet columns as the master column list (always annual).
+        # Income statements can contain quarterly TTM columns that don't align.
+        if not bal.empty:
+            master_cols = list(bal.columns)[:5]
+        else:
+            master_cols = list(inc.columns)[:5]
+
+        def find_nearest_col(df, target_col):
+            """Find the column in df closest to target_col by date."""
+            if df.empty:
+                return None
+            if target_col in df.columns:
+                return target_col
+            # Find nearest date column
+            try:
+                target_ts = pd.Timestamp(target_col)
+                nearest = min(df.columns, key=lambda c: abs((pd.Timestamp(c) - target_ts).days))
+                # Only use if within 6 months of the target
+                if abs((pd.Timestamp(nearest) - target_ts).days) <= 180:
+                    return nearest
+            except Exception:
+                pass
+            return None
+
         years_data = []
-        # Try to get up to 5 recent columns
-        cols = list(inc.columns)[:5]
         
-        for col in cols:
-            year_str = str(col)[:4]
+        for master_col in master_cols:
+            year_str = str(master_col)[:4]
             
-            def get_val(df, keys, m=1e6):
-                if df.empty or col not in df.columns:
+            # Find the best matching column in each statement
+            inc_col = find_nearest_col(inc, master_col)
+            bal_col = master_col  # balance sheet IS the master
+            cf_col = find_nearest_col(cf, master_col)
+            
+            def get_val(df, keys, col_to_use, m=1e6):
+                if df.empty or col_to_use is None or col_to_use not in df.columns:
                     return 0.0
                 for k in keys:
                     if k in df.index:
-                        return float(df.loc[k, col]) / m
+                        return float(df.loc[k, col_to_use]) / m
                 return 0.0
 
             # --- Income Statement ---
-            rev = get_val(inc, ['Total Revenue', 'Operating Revenue', 'Revenue'])
-            net = get_val(inc, ['Net Income', 'Net Income Common Stockholders'])
-            ebit = get_val(inc, ['EBIT', 'Operating Income'])
-            cogs = get_val(inc, ['Cost Of Revenue', 'Cost of Goods Sold'])
-            interest = get_val(inc, ['Interest Expense', 'Interest Expense Non Operating'])
+            rev = get_val(inc, ['Total Revenue', 'Operating Revenue', 'Revenue'], inc_col)
+            net = get_val(inc, ['Net Income', 'Net Income Common Stockholders'], inc_col)
+            ebit = get_val(inc, ['EBIT', 'Operating Income'], inc_col)
+            cogs = get_val(inc, ['Cost Of Revenue', 'Cost of Goods Sold'], inc_col)
+            interest = get_val(inc, ['Interest Expense', 'Interest Expense Non Operating'], inc_col)
             
             # --- Balance Sheet ---
-            cash = get_val(bal, ['Cash And Cash Equivalents', 'Cash', 'Cash & Equivalents'])
-            debt = get_val(bal, ['Total Debt', 'Long Term Debt And Capital Lease Obligation'])
-            assets = get_val(bal, ['Total Assets'])
-            equity = get_val(bal, ['Stockholders Equity', 'Total Stockholder Equity', 'Common Stock Equity'])
+            cash = get_val(bal, ['Cash And Cash Equivalents', 'Cash', 'Cash & Equivalents'], bal_col)
+            debt = get_val(bal, ['Total Debt', 'Long Term Debt And Capital Lease Obligation'], bal_col)
+            assets = get_val(bal, ['Total Assets'], bal_col)
+            equity = get_val(bal, ['Stockholders Equity', 'Total Stockholder Equity', 'Common Stock Equity'], bal_col)
             
-            current_assets = get_val(bal, ['Current Assets', 'Total Current Assets'])
-            current_liabilities = get_val(bal, ['Current Liabilities', 'Total Current Liabilities'])
-            accounts_receivable = get_val(bal, ['Accounts Receivable', 'Net Receivables'])
-            inventory = get_val(bal, ['Inventory'])
-            retained_earnings = get_val(bal, ['Retained Earnings'])
+            current_assets = get_val(bal, ['Current Assets', 'Total Current Assets'], bal_col)
+            current_liabilities = get_val(bal, ['Current Liabilities', 'Total Current Liabilities'], bal_col)
+            accounts_receivable = get_val(bal, ['Accounts Receivable', 'Net Receivables'], bal_col)
+            inventory = get_val(bal, ['Inventory'], bal_col)
+            retained_earnings = get_val(bal, ['Retained Earnings'], bal_col)
             
             # --- Cash Flow ---
-            capex = get_val(cf, ['Capital Expenditure', 'Investments In Property Plant And Equipment'])
+            capex = get_val(cf, ['Capital Expenditure', 'Investments In Property Plant And Equipment'], cf_col)
             # Capex is usually reported as a negative outflow, we want the absolute value
             capex = abs(capex) if capex != 0 else rev * 0.05
             
             # --- Approximations for missing generic fields ---
-            ebitda = get_val(inc, ['EBITDA'])
+            ebitda = get_val(inc, ['EBITDA'], inc_col)
             if ebitda == 0.0:
-                da = get_val(cf, ['Depreciation And Amortization', 'Depreciation'])
+                da = get_val(cf, ['Depreciation And Amortization', 'Depreciation'], cf_col)
                 ebitda = ebit + da if da > 0 else ebit * 1.2
                 
-            working_cap = get_val(bal, ['Working Capital'])
+            working_cap = get_val(bal, ['Working Capital'], bal_col)
             if working_cap == 0.0:
                 if current_assets != 0 or current_liabilities != 0:
                     working_cap = current_assets - current_liabilities
@@ -107,6 +134,17 @@ def fetch_historical_data_sync(ticker_symbol: str) -> Optional[Tuple[str, list]]
             
         # Reverse to chronological order (yfinance returns newest to oldest)
         years_data.reverse()
+        
+        # Remove zero-revenue ghost rows (quarterly TTM artifacts)
+        years_data = [d for d in years_data if d['revenue'] > 0]
+        
+        # Deduplicate by year (keep the entry with the highest revenue)
+        seen = {}
+        for d in years_data:
+            yr = d['year']
+            if yr not in seen or d['revenue'] > seen[yr]['revenue']:
+                seen[yr] = d
+        years_data = sorted(seen.values(), key=lambda x: x['year'])
         
         # Pad data if we have less than 5 years but more than 0
         if 0 < len(years_data) < 5:

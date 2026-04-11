@@ -165,6 +165,14 @@ def build_comparison_verdict(left: dict, right: dict) -> dict:
 
 
 def fallback_analysis_from_metrics(metrics: dict) -> dict:
+    if not metrics:
+        return {
+            "pattern_diagnosis": "No sufficient quantitative data was available for this ticker to generate a trend diagnosis.",
+            "flags": [{"emoji": "!", "name": "Data Insufficient", "explanation": "Required 5-year financial history is missing or incomplete."}],
+            "analyst_verdict_archetype": "DATA_INSUFFICIENT",
+            "analyst_verdict_summary": "We could not find enough public financial data to analyze this company's performance trends.",
+        }
+
     z_score = float(metrics.get("current_z_score", 0.0) or 0.0)
     margin_signal = str(metrics.get("margin_signal", "STABLE")).upper()
     debt_signal = str(metrics.get("debt_signal", "STABLE")).upper()
@@ -360,7 +368,7 @@ async def run_analysis_for_ticker(
             fetch_result = await fetch_historical_data(requested_ticker)
             if not fetch_result:
                 raise ValueError(
-                    f"Ticker '{requested_ticker}' could not be fetched. This company is either private (no public financials), recently delisted, or not supported by Yahoo Finance."
+                    f"Ticker '{requested_ticker}' is likely a private company or no public financial data is available. (Yahoo Finance returned no financials)"
                 )
             company_name, historical_data = fetch_result
             resolved_ticker = requested_ticker
@@ -539,7 +547,12 @@ async def analyze_stream(ticker: str, db: AsyncSession = Depends(get_db)):
             result = await run_analysis_for_ticker(ticker, db)
             yield f"data: {json.dumps({'type':'result','payload': result})}\n\n"
         except Exception as e:
-            yield f"data: {json.dumps({'type':'error','message': str(e)})}\n\n"
+            error_msg = str(e)
+            if "Ticker" in error_msg and "private" in error_msg:
+                friendly_msg = error_msg
+            else:
+                friendly_msg = f"Analysis failed: {error_msg}"
+            yield f"data: {json.dumps({'type':'error','message': friendly_msg})}\n\n"
         yield "data: [DONE]\n\n"
         
     return StreamingResponse(event_generator(), media_type="text/event-stream")

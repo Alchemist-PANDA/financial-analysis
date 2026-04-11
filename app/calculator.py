@@ -223,23 +223,26 @@ def calculate_metrics(historical_data: list[dict]) -> dict:
         cagr = None
 
     # 2. Revenue Trajectory
-    recent_5_years = historical_data[-5:]
+    recent_years = historical_data[-5:]
     growths = []
-    for i in range(1, 5):
-        prev_revenue = numeric_value(recent_5_years[i - 1], "revenue", None)
-        current_revenue = numeric_value(recent_5_years[i], "revenue", None)
+    for i in range(1, len(recent_years)):
+        prev_revenue = numeric_value(recent_years[i - 1], "revenue", None)
+        current_revenue = numeric_value(recent_years[i], "revenue", None)
         if prev_revenue is None or prev_revenue <= 0 or current_revenue is None:
             g = 0.0
         else:
             g = (current_revenue / prev_revenue) - 1
         growths.append(g)
 
-    if all(growths[i] > growths[i - 1] for i in range(1, 4)):
-        trajectory = "ACCELERATING"
-    elif all(abs(growths[i] - growths[i - 1]) < 0.02 for i in range(1, 4)):
-        trajectory = "STEADY"
-    elif growths[-1] < growths[-2] and growths[-1] > 0:
-        trajectory = "DECELERATING"
+    if len(growths) >= 2:
+        if all(growths[i] > growths[i - 1] for i in range(1, len(growths))):
+            trajectory = "ACCELERATING"
+        elif all(abs(growths[i] - growths[i - 1]) < 0.02 for i in range(1, len(growths))):
+            trajectory = "STEADY"
+        elif growths[-1] < growths[-2] and growths[-1] > 0:
+            trajectory = "DECELERATING"
+        else:
+            trajectory = "STALLING"
     else:
         trajectory = "STALLING"
 
