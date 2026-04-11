@@ -19,13 +19,15 @@ def fetch_historical_data_sync(ticker_symbol: str) -> Optional[Tuple[str, list]]
         # If the ticker does not exist or has no financials, return None
         if income is None or income.empty:
             return None
-            
-        company_name = stock.info.get("shortName", ticker_symbol)
+
+        # stock.info can be None for invalid/delisted/rate-limited tickers
+        stock_info = stock.info if isinstance(stock.info, dict) else {}
+        company_name = stock_info.get("shortName", ticker_symbol)
         
         # Fill missing with 0 temporarily for math, but check bounds carefully
         inc = income.fillna(0)
-        bal = balance.fillna(0) if not balance.empty else pd.DataFrame()
-        cf = cashflow.fillna(0) if not cashflow.empty else pd.DataFrame()
+        bal = balance.fillna(0) if (balance is not None and not balance.empty) else pd.DataFrame()
+        cf = cashflow.fillna(0) if (cashflow is not None and not cashflow.empty) else pd.DataFrame()
         
         years_data = []
         # Try to get up to 5 recent columns
@@ -79,7 +81,7 @@ def fetch_historical_data_sync(ticker_symbol: str) -> Optional[Tuple[str, list]]
                 else:
                     working_cap = (assets * 0.3) - (debt * 0.2)
                     
-            market_cap = stock.info.get("marketCap", 0) / 1e6
+            market_cap = stock_info.get("marketCap", 0) / 1e6
             
             years_data.append({
                 'year': year_str,

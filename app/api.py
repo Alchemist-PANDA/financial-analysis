@@ -453,9 +453,9 @@ async def run_analysis_for_ticker(
         return response_payload
     except Exception as graph_error:
         print(f"Graph invocation failed: {graph_error}")
-        if manual_data:
-            from app.calculator import calculate_metrics
+        from app.calculator import calculate_metrics
 
+        if manual_data:
             fallback_metrics = calculate_metrics(manual_data["historical_data"])
             fallback_analysis = fallback_analysis_from_metrics(fallback_metrics)
             response_payload = build_response_payload(
@@ -475,16 +475,23 @@ async def run_analysis_for_ticker(
                 response_payload["scorecard_error"] = str(scorecard_err)
             return response_payload
 
-        from app.calculator import calculate_metrics
+        # record may be None for dynamically-fetched tickers — guard against it
+        if record:
+            seed_metrics = record.get("data", {}).get("metrics", {}) or {}
+            seed_yearly = seed_metrics.get("yearly", [])
+            try:
+                fallback_metrics = calculate_metrics(seed_yearly)
+            except Exception:
+                fallback_metrics = seed_metrics
+            fallback_analysis = record.get("data", {}).get("analysis", {}) or fallback_analysis_from_metrics(fallback_metrics)
+        else:
+            # Dynamic ticker — use the historical_data we already fetched
+            try:
+                fallback_metrics = calculate_metrics(historical_data)
+            except Exception:
+                fallback_metrics = {}
+            fallback_analysis = fallback_analysis_from_metrics(fallback_metrics)
 
-        seed_metrics = record.get("data", {}).get("metrics", {}) or {}
-        seed_yearly = seed_metrics.get("yearly", [])
-        try:
-            fallback_metrics = calculate_metrics(seed_yearly)
-        except Exception:
-            fallback_metrics = seed_metrics
-
-        fallback_analysis = record.get("data", {}).get("analysis", {}) or fallback_analysis_from_metrics(fallback_metrics)
         response_payload = build_response_payload(
             resolved_ticker, company_name, fallback_metrics, fallback_analysis
         )
