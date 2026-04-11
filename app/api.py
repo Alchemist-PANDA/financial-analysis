@@ -360,7 +360,7 @@ async def run_analysis_for_ticker(
             fetch_result = await fetch_historical_data(requested_ticker)
             if not fetch_result:
                 raise ValueError(
-                    f"Ticker '{requested_ticker}' could not be fetched dynamically or does not exist."
+                    f"Ticker '{requested_ticker}' could not be fetched. This company is either private (no public financials), recently delisted, or not supported by Yahoo Finance."
                 )
             company_name, historical_data = fetch_result
             resolved_ticker = requested_ticker

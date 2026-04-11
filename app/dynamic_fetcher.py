@@ -37,7 +37,7 @@ def fetch_historical_data_sync(ticker_symbol: str) -> Optional[Tuple[str, list]]
             year_str = str(col)[:4]
             
             def get_val(df, keys, m=1e6):
-                if df.empty:
+                if df.empty or col not in df.columns:
                     return 0.0
                 for k in keys:
                     if k in df.index:
@@ -107,6 +107,15 @@ def fetch_historical_data_sync(ticker_symbol: str) -> Optional[Tuple[str, list]]
             
         # Reverse to chronological order (yfinance returns newest to oldest)
         years_data.reverse()
+        
+        # Pad data if we have less than 5 years but more than 0
+        if 0 < len(years_data) < 5:
+            oldest_year_data = years_data[0].copy()
+            for i in range(5 - len(years_data)):
+                padded_data = oldest_year_data.copy()
+                # Decrement the year strings for the padded data
+                padded_data['year'] = str(int(oldest_year_data['year']) - (i + 1))
+                years_data.insert(0, padded_data)
         
         # Quick validation
         if len(years_data) == 0:

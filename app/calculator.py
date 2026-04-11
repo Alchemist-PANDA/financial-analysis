@@ -26,8 +26,8 @@ def calculate_metrics(historical_data: list[dict]) -> dict:
     Calculate 5-year financial trends and classification signals.
     Expects 5 years of data in chronological order (Y-4 to Y0).
     """
-    if len(historical_data) < 5:
-        raise ValueError("Institutional standard requires exactly 5 years of data.")
+    if len(historical_data) < 2:
+        raise ValueError("Institutional standard requires at least 2 years of data.")
 
     years_metrics = []
     for data in historical_data:
