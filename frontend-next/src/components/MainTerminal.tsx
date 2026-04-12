@@ -186,10 +186,17 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                 const response = await fetch(`${BASE_URL}/api/scorecard/history`, {
                     headers: { 'X-API-Key': API_KEY },
                 });
-                const body = await response.json();
-                if (!response.ok) {
-                    throw new Error(body?.detail || 'Unable to load scorecard history.');
+                
+                const contentType = response.headers.get('content-type');
+                if (!response.ok || !contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    if (text.includes('<!DOCTYPE') || text.includes('<html')) {
+                        throw new Error('Backend engine is waking up. Please refresh in 30 seconds.');
+                    }
+                    throw new Error('Backend returned non-JSON response.');
                 }
+
+                const body = await response.json();
                 if (isActive) {
                     setScorecardHistory(Array.isArray(body) ? body : []);
                 }
@@ -516,7 +523,7 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                         }}
                     />
                     <button className="analyze-btn" onClick={() => void handleAnalyze()} disabled={isAnalyzing}>
-                        {isAnalyzing ? 'RUNNING...' : 'EXECUTE'}
+                        {isAnalyzing ? 'RUNNING...' : 'RUN AI FORENSIC'}
                     </button>
                     {analysisData && (
                         <button className="pdf-btn" onClick={() => void handleExportPDF()}>
@@ -668,8 +675,29 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                             </div>
                         )}
                         {!isAnalyzing && !analysisData && (
-                            <div style={{ color: 'var(--text-muted)', fontSize: '12px' }}>
-                                No output yet. Execute a ticker or run manual entry.
+                            <div className="empty-command-center">
+                                <div className="command-box">
+                                    <div className="command-icon">⚛️</div>
+                                    <h2 className="command-title">Institutional AI Terminal</h2>
+                                    <p className="command-subtitle">Enter a ticker to begin multi-signal forensic analysis.</p>
+                                    <div className="command-input-wrapper">
+                                        <input
+                                            className="command-input"
+                                            placeholder="ENTER TICKER (e.g. TM, AAPL, NVDA)..."
+                                            value={ticker}
+                                            onChange={(e) => setTicker(e.target.value.toUpperCase())}
+                                            onKeyDown={(e) => e.key === 'Enter' && void handleAnalyze()}
+                                        />
+                                        <button className="command-btn" onClick={() => void handleAnalyze()}>
+                                            RUN FORENSIC AI
+                                        </button>
+                                    </div>
+                                    <div className="command-hints">
+                                        <span>TIP: Try "TM" for international ADR analysis</span>
+                                        <span>•</span>
+                                        <span>Manual entry supported</span>
+                                    </div>
+                                </div>
                             </div>
                         )}
                     </div>
@@ -916,6 +944,80 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                 .diagnosis-card {
                     padding-bottom: 24px;
                     border-bottom: 1px solid var(--border);
+                }
+
+                .empty-command-center {
+                    display: flex;
+                    align-items: center;
+                    justify-content: center;
+                    height: 100%;
+                    min-height: 400px;
+                }
+
+                .command-box {
+                    text-align: center;
+                    background: var(--bg-surface);
+                    border: 1px solid var(--border);
+                    padding: 48px;
+                    max-width: 600px;
+                    width: 100%;
+                    box-shadow: 0 20px 50px rgba(0,0,0,0.1);
+                }
+
+                .command-icon {
+                    font-size: 48px;
+                    margin-bottom: 16px;
+                }
+
+                .command-title {
+                    font-size: 24px;
+                    font-weight: 800;
+                    color: var(--primary);
+                    margin-bottom: 8px;
+                    letter-spacing: -0.02em;
+                }
+
+                .command-subtitle {
+                    color: var(--text-muted);
+                    font-size: 14px;
+                    margin-bottom: 32px;
+                }
+
+                .command-input-wrapper {
+                    display: flex;
+                    gap: 0;
+                    box-shadow: 0 4px 20px rgba(37, 99, 235, 0.1);
+                }
+
+                .command-input {
+                    flex: 1;
+                    background: var(--bg-elevated);
+                    border: 1px solid var(--primary);
+                    color: var(--text-primary);
+                    padding: 16px 20px;
+                    font-family: var(--font-mono);
+                    font-size: 15px;
+                    outline: none;
+                }
+
+                .command-btn {
+                    background: linear-gradient(135deg,#2563EB,#1D4ED8);
+                    color: white;
+                    border: none;
+                    padding: 0 24px;
+                    font-weight: 800;
+                    font-size: 12px;
+                    text-transform: uppercase;
+                    cursor: pointer;
+                }
+
+                .command-hints {
+                    margin-top: 24px;
+                    display: flex;
+                    justify-content: center;
+                    gap: 12px;
+                    font-size: 11px;
+                    color: var(--text-muted);
                 }
 
                 .highlight-card {

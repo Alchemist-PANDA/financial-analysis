@@ -40,10 +40,17 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
                         'X-API-Key': API_KEY,
                     },
                 });
-                const body = await response.json();
-                if (!response.ok) {
-                    throw new Error(body?.detail || 'Unable to load history.');
+                
+                const contentType = response.headers.get('content-type');
+                if (!response.ok || !contentType || !contentType.includes('application/json')) {
+                    const text = await response.text();
+                    if (text.includes('<!DOCTYPE')) {
+                        throw new Error('Backend engine is waking up. Please wait...');
+                    }
+                    throw new Error('Unable to load history.');
                 }
+
+                const body = await response.json();
                 if (isActive) {
                     setHistory(Array.isArray(body) ? body : []);
                 }

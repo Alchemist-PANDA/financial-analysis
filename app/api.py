@@ -104,25 +104,28 @@ def detect_signals(ticker: str, history_df: Any, news: list) -> dict:
             break
 
     # 3. Volume Detection (20-day avg)
-    avg_vol = history_df['Volume'].iloc[:-1].mean()
-    current_vol = history_df['Volume'].iloc[-1]
-    vol_ratio = current_vol / avg_vol if avg_vol > 0 else 1
-    volume_signal = {
-        "volume_spike": vol_ratio > 1.8,
-        "ratio": round(float(vol_ratio), 2),
-        "explanation": "Unusually high volume" if vol_ratio > 2.0 else "Normal volume"
-    }
+    volume_signal = {"volume_spike": False, "ratio": 1.0, "explanation": "Normal volume"}
+    if 'Volume' in history_df.columns and len(history_df) > 1:
+        avg_vol = history_df['Volume'].iloc[:-1].mean()
+        current_vol = history_df['Volume'].iloc[-1]
+        vol_ratio = current_vol / avg_vol if avg_vol > 0 else 1
+        volume_signal = {
+            "volume_spike": vol_ratio > 1.8,
+            "ratio": round(float(vol_ratio), 2),
+            "explanation": "Unusually high volume" if vol_ratio > 2.0 else "Normal volume"
+        }
 
     # 4. Technical Detection (20-day breakout)
-    lookback = history_df.iloc[-21:-1] if len(history_df) > 21 else history_df.iloc[:-1]
-    res_level = lookback['High'].max()
-    sup_level = lookback['Low'].min()
-    
     technical_signal = None
-    if latest_close > res_level * 1.001:
-        technical_signal = {"pattern": "breakout", "level": round(float(res_level), 2)}
-    elif latest_close < sup_level * 0.999:
-        technical_signal = {"pattern": "breakdown", "level": round(float(sup_level), 2)}
+    if 'High' in history_df.columns and 'Low' in history_df.columns and len(history_df) > 5:
+        lookback = history_df.iloc[-21:-1] if len(history_df) > 21 else history_df.iloc[:-1]
+        res_level = lookback['High'].max()
+        sup_level = lookback['Low'].min()
+        
+        if latest_close > res_level * 1.001:
+            technical_signal = {"pattern": "breakout", "level": round(float(res_level), 2)}
+        elif latest_close < sup_level * 0.999:
+            technical_signal = {"pattern": "breakdown", "level": round(float(sup_level), 2)}
 
     return {
         "news": news_signal,
@@ -167,10 +170,22 @@ def generate_chart_explanation(ticker: str, signals: dict) -> dict:
     ai_explanation = base_explanation
     if GROQ_API_KEY:
         try:
+            # Create a serializable copy of signals
+            serializable_signals = {
+                "news": signals.get("news"),
+                "volume": {
+                    "volume_spike": bool(signals["volume"]["volume_spike"]),
+                    "ratio": float(signals["volume"]["ratio"]),
+                    "explanation": str(signals["volume"]["explanation"])
+                } if signals.get("volume") else None,
+                "technical": signals.get("technical"),
+                "price_change": float(signals["price_change"])
+            }
+            
             prompt = f"""You are a Senior Institutional Analyst. Explain why {ticker} moved {pc:.1f}% given these signals:
-- News: {json.dumps(signals['news'])}
-- Volume: {json.dumps(signals['volume'])}
-- Technical: {json.dumps(signals['technical'])}
+- News: {json.dumps(serializable_signals['news'])}
+- Volume: {json.dumps(serializable_signals['volume'])}
+- Technical: {json.dumps(serializable_signals['technical'])}
 
 Write a concise, professional 1-sentence institutional verdict (max 30 words).
 Use terms like 'catalyst-driven', 'institutional accumulation', 'resistance breach', or 'momentum exhaustion'.
