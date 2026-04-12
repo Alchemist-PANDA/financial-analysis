@@ -388,7 +388,7 @@ async def run_analysis_for_ticker(
     final_state: dict = {}
     try:
         raw_final_state = await asyncio.wait_for(
-            asyncio.to_thread(graph.invoke, initial_state),
+            graph.ainvoke(initial_state),
             timeout=GRAPH_TIMEOUT_SECONDS,
         )
         final_state = dict(raw_final_state or {})
