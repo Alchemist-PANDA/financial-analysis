@@ -15,7 +15,7 @@ class AgentState(TypedDict):
     company_data: dict
 
     # 5-year historical financial dataset (Y-4 through Y0)
-    historical_data: list[dict]
+    historical_data: Optional[list[dict]]
 
     # Calculated financial metrics and trends produced by the calculator node
     metrics: Optional[dict]

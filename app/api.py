@@ -342,26 +342,24 @@ async def persist_scorecard_result(
 
 
 async def run_analysis_for_ticker(
-    ticker: str,
-    db: Optional[AsyncSession] = None,
-    manual_data: Optional[dict] = None,
+    ticker: str | None = None,
+    manual_data: dict | None = None,
     save_history: bool = True,
     skip_external: bool = False,
+    db: AsyncSession | None = None,
 ) -> dict:
     requested_ticker = (ticker or "N/A").upper()
+
+    # Fast Resolution
+    historical_data = None
+    resolved_ticker = requested_ticker
+    company_name = requested_ticker
+    record = None
 
     if manual_data:
         company_payload = manual_data["company"]
         historical_data = manual_data["historical_data"]
-        initial_state = {
-            "company_data": company_payload,
-            "historical_data": historical_data,
-            "metrics": None,
-            "search_query": "",
-            "search_results": [],
-            "analysis_result": None,
-        }
-        resolved_ticker = company_payload.get("ticker", requested_ticker or "CUSTOM")
+        resolved_ticker = company_payload.get("ticker", "CUSTOM")
         company_name = company_payload.get("company_name", "Private Company")
     else:
         record = get_seed_record(requested_ticker)
@@ -369,59 +367,24 @@ async def run_analysis_for_ticker(
             historical_data = record["data"]["metrics"]["yearly"]
             resolved_ticker = record["ticker"]
             company_name = record["company_name"]
-        else:
-            from app.dynamic_fetcher import fetch_historical_data
-            fetch_result = await fetch_historical_data(requested_ticker)
-            if not fetch_result:
-                raise ValueError(
-                    f"Ticker '{requested_ticker}' is likely a private company or no public financial data is available. (Yahoo Finance returned no financials)"
-                )
-            company_name, historical_data = fetch_result
-            resolved_ticker = requested_ticker
 
-        initial_state = {
-            "company_data": {
-                "ticker": resolved_ticker,
-                "company_name": company_name,
-            },
-            "historical_data": historical_data,
-            "metrics": None,
-            "search_query": f"{resolved_ticker} news",
-            "search_results": [],
-            "analysis_result": None,
-        }
+    initial_state = {
+        "company_data": {"ticker": resolved_ticker, "company_name": company_name},
+        "historical_data": historical_data,
+        "metrics": None,
+        "search_query": f"{company_name} news",
+        "search_results": [],
+        "analysis_result": None,
+    }
 
-    if skip_external:
+    # Skip external path (for manual data or quick seed lookups)
+    if skip_external and historical_data:
         from app.calculator import calculate_metrics
+        metrics = calculate_metrics(historical_data)
+        analysis = (record.get("data") or {}).get("analysis") if not manual_data and record else fallback_analysis_from_metrics(metrics)
+        return build_response_payload(resolved_ticker, company_name, metrics, analysis)
 
-        try:
-            metrics = calculate_metrics(historical_data)
-        except Exception:
-            if manual_data:
-                raise
-            metrics = (record.get("data") or {}).get("metrics") or {} if record else {}
-
-        if manual_data:
-            analysis = fallback_analysis_from_metrics(metrics)
-        else:
-            analysis = (
-                ((record.get("data") or {}).get("analysis") or {} if record else {})
-                or fallback_analysis_from_metrics(metrics)
-            )
-
-        response_payload = build_response_payload(resolved_ticker, company_name, metrics, analysis)
-        try:
-            scorecard_inputs = build_scorecard_inputs_from_history(
-                company_name=company_name,
-                historical_data=historical_data,
-                scoring_mode="credit",
-                data_source="manual" if manual_data else "ticker",
-            )
-            response_payload["scorecard"] = run_scorecard_analysis(scorecard_inputs, mode="credit")
-        except Exception as scorecard_err:
-            response_payload["scorecard_error"] = str(scorecard_err)
-        return response_payload
-
+    # Parallel Graph Execution (EXTREMELY FAST)
     final_state: dict = {}
     try:
         raw_final_state = await asyncio.wait_for(
@@ -430,6 +393,12 @@ async def run_analysis_for_ticker(
         )
         final_state = dict(raw_final_state or {})
         
+        # Resolve data from final state
+        historical_data = final_state.get("historical_data") or historical_data
+        if not historical_data and not manual_data:
+             raise ValueError(f"Ticker '{resolved_ticker}' not found or no public data available.")
+        
+        company_name = final_state["company_data"].get("company_name", company_name)
         result = dict(final_state.get("analysis_result") or {})
         analysis = dict(result.get("analysis") or {})
         metrics = dict(final_state.get("metrics") or {})
@@ -455,128 +424,46 @@ async def run_analysis_for_ticker(
                 analysis_history = AnalysisHistory(
                     ticker=resolved_ticker.upper(),
                     company_name=company_name,
-                    archetype=response_payload["analysis"].get("analyst_verdict_archetype", "UNKNOWN"),
+                    archetype=str(response_payload["analysis"].get("analyst_verdict_archetype", "UNKNOWN")),
                     analysis_data=final_state,
                 )
                 db.add(analysis_history)
                 await db.commit()
+                response_payload["analysis_id"] = analysis_history.id
+                
                 if scorecard_inputs and scorecard_result:
-                    scorecard_record = await persist_scorecard_result(
-                        db, scorecard_inputs, scorecard_result
-                    )
-                    scorecard_result["analysis_id"] = scorecard_record.id
+                    await persist_scorecard_result(db, scorecard_inputs, scorecard_result)
             except Exception as db_err:
                 print(f"Failed to save history: {db_err}")
 
         return response_payload
+
     except Exception as graph_error:
-        print(f"Graph invocation failed: {graph_error}")
-        from app.calculator import calculate_metrics
-
-        if manual_data:
-            fallback_metrics = dict(calculate_metrics(manual_data["historical_data"]) or {})
-            fallback_analysis = dict(fallback_analysis_from_metrics(fallback_metrics) or {})
-            response_payload = build_response_payload(
-                resolved_ticker, company_name, fallback_metrics, fallback_analysis
-            )
-            try:
-                scorecard_inputs = build_scorecard_inputs_from_history(
-                    company_name=company_name,
-                    historical_data=manual_data["historical_data"],
-                    scoring_mode="credit",
-                    data_source="manual",
-                )
-                response_payload["scorecard"] = run_scorecard_analysis(
-                    scorecard_inputs, mode="credit"
-                )
-            except Exception as scorecard_err:
-                response_payload["scorecard_error"] = str(scorecard_err)
-            return response_payload
-
-        # record may be None for dynamically-fetched tickers — guard against it
-        if record:
-            seed_metrics = dict((record.get("data") or {}).get("metrics") or {})
-            seed_yearly = seed_metrics.get("yearly", [])
-            try:
-                fallback_metrics = dict(calculate_metrics(seed_yearly) or {})
-            except Exception:
-                fallback_metrics = seed_metrics
-            fallback_analysis = dict((record.get("data") or {}).get("analysis") or fallback_analysis_from_metrics(fallback_metrics))
-        else:
-            # Dynamic ticker — use the historical_data we already fetched
-            try:
-                fallback_metrics = dict(calculate_metrics(historical_data) or {})
-            except Exception:
-                fallback_metrics = {}
-            fallback_analysis = dict(fallback_analysis_from_metrics(fallback_metrics) or {})
-
-        response_payload = build_response_payload(
-            resolved_ticker, company_name, fallback_metrics, fallback_analysis
-        )
-        try:
-            scorecard_inputs = build_scorecard_inputs_from_history(
-                company_name=company_name,
-                historical_data=historical_data,
-                scoring_mode="credit",
-                data_source="ticker",
-            )
-            response_payload["scorecard"] = run_scorecard_analysis(
-                scorecard_inputs, mode="credit"
-            )
-        except Exception as scorecard_err:
-            response_payload["scorecard_error"] = str(scorecard_err)
-
-        if save_history and db:
-            try:
-                analysis_history = AnalysisHistory(
-                    ticker=resolved_ticker.upper(),
-                    company_name=company_name,
-                    archetype=response_payload["analysis"].get("analyst_verdict_archetype", "UNKNOWN"),
-                    analysis_data=final_state if final_state else {"fallback": True},
-                )
-                db.add(analysis_history)
-                await db.commit()
-            except Exception as db_err:
-                print(f"Failed to save fallback history: {db_err}")
-
-        return response_payload
+        print(f"Parallel Graph failed: {graph_error}")
+        raise
 
 @app.get("/api/analyze/stream")
 async def analyze_stream(ticker: str, db: AsyncSession = Depends(get_db)):
     async def event_generator():
-        yield f"data: {json.dumps({'type':'progress','step':'fetching','label':'Fetching 5-year data'})}\n\n"
-        await asyncio.sleep(0.5)
-        yield f"data: {json.dumps({'type':'progress','step':'normalizing','label':'Normalizing GAAP figures'})}\n\n"
-        await asyncio.sleep(0.5)
-        yield f"data: {json.dumps({'type':'progress','step':'trend_engine','label':'Running Trend Engine'})}\n\n"
-        await asyncio.sleep(0.5)
-        yield f"data: {json.dumps({'type':'progress','step':'verdict','label':'Generating Retail Verdict'})}\n\n"
+        # Immediate start
+        yield f"data: {json.dumps({'type':'progress','step':'fetching','label':'Parallel Engine Started...'})}\n\n"
         
         try:
-            # Stage 1: Fast metrics calculation for immediate UI population
+            # Stage 1: Check Seed (Zero latency path)
             from app.calculator import calculate_metrics
-            
             record = get_seed_record(ticker)
             if record:
+                yield f"data: {json.dumps({'type':'progress','step':'normalizing','label':'Loading Seed Data'})}\n\n"
                 company_name = record["company_name"]
                 metrics = calculate_metrics(record["data"]["metrics"]["yearly"])
-                
-                # Send early metrics result so dashboard fields populate instantly
                 early_payload = build_response_payload(record["ticker"], company_name, metrics, {})
                 yield f"data: {json.dumps({'type':'result','payload': early_payload})}\n\n"
-            else:
-                yield f"data: {json.dumps({'type':'progress','step':'fetching','label':f'Fetching 5-year dynamic data for {ticker.upper()}'})}\n\n"
             
-            # Stage 2: Full analysis (AI synthesis + Search + Scraper)
+            # Stage 2: Parallel Full Analysis (Covers fetching + news + AI in one go)
             result = await run_analysis_for_ticker(ticker, db)
             yield f"data: {json.dumps({'type':'result','payload': result})}\n\n"
         except Exception as e:
-            error_msg = str(e)
-            if "Ticker" in error_msg and "private" in error_msg:
-                friendly_msg = error_msg
-            else:
-                friendly_msg = f"Analysis failed: {error_msg}"
-            yield f"data: {json.dumps({'type':'error','message': friendly_msg})}\n\n"
+            yield f"data: {json.dumps({'type':'error','message': f'Analysis failed: {str(e)}'})}\n\n"
         yield "data: [DONE]\n\n"
         
     return StreamingResponse(event_generator(), media_type="text/event-stream")
@@ -681,9 +568,6 @@ class ScorecardRequest(BaseModel):
     working_capital_prior: Optional[float] = None
     revenue_cagr_years: Optional[int] = 3
 
-
-# Serve the frontend UI (Disabled, using Vercel)
-# frontend_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "frontend")
 
 @app.get("/api/history", dependencies=[Depends(get_api_key)])
 async def get_history(db: AsyncSession = Depends(get_db)):
