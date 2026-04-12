@@ -20,7 +20,7 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
     const [history, setHistory] = useState<HistoryItem[]>([]);
     const [isLoading, setIsLoading] = useState(false);
     const [historyError, setHistoryError] = useState<string | null>(null);
-    const BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\\n/g, '').trim();
+    const BASE_URL = (typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:7860')).replace(/\\n/g, '').trim();
     const API_KEY = (process.env.NEXT_PUBLIC_API_KEY || 'dev_default_key').replace(/\\n/g, '').trim();
 
     useEffect(() => {

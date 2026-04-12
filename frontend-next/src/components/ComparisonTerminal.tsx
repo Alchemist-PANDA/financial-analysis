@@ -61,7 +61,7 @@ const ComparisonTerminal = () => {
     const [error, setError] = useState<string | null>(null);
     const [result, setResult] = useState<ComparePayload | null>(null);
 
-    const BASE_URL = (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000').replace(/\\n/g, '').trim();
+    const BASE_URL = (typeof window !== 'undefined' ? window.location.origin : (process.env.NEXT_PUBLIC_API_URL || 'http://localhost:7860')).replace(/\\n/g, '').trim();
 
     const runComparison = async () => {
         const left = tickerA.trim().toUpperCase();
