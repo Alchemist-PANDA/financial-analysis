@@ -1,8 +1,8 @@
 # Stage 1: Build the Frontend
-FROM node:18-slim AS frontend-builder
+FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend-next
 COPY frontend-next/package*.json ./
-RUN npm install
+RUN npm install --legacy-peer-deps
 COPY frontend-next ./
 RUN npm run build
 
@@ -14,19 +14,19 @@ WORKDIR /app
 RUN apt-get update && apt-get install -y \
     build-essential \
     libpq-dev \
+    curl \
     && rm -rf /var/lib/apt/lists/*
 
 # Copy requirements and install
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy backend application code only
-# Ensure we don't overwrite the built frontend
+# Copy backend application code
 COPY app ./app
 COPY config.py .
 COPY .env.example .
 
-# Copy built frontend from Stage 1 into the correct path for api.py
+# Copy built frontend from Stage 1
 COPY --from=frontend-builder /app/frontend-next/out ./frontend-next/out
 
 # Expose Hugging Face port
