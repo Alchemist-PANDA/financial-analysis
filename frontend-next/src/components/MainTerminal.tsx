@@ -97,17 +97,32 @@ const normalizeResultPayload = (raw: unknown, fallbackTicker: string): AnalysisR
         return null;
     }
     const data = raw as Record<string, unknown>;
-    const metrics = data.metrics as MetricsPayload | undefined;
-    const analysis = data.analysis as AnalysisPayload | undefined;
+    
+    // Defensive extraction with fallbacks
+    const rawMetrics = data.metrics as Record<string, any> | undefined;
+    const metrics: MetricsPayload = {
+        yearly: Array.isArray(rawMetrics?.yearly) ? rawMetrics!.yearly : [],
+        revenue_cagr_pct: typeof rawMetrics?.revenue_cagr_pct === 'number' ? rawMetrics!.revenue_cagr_pct : 0,
+        margin_signal: typeof rawMetrics?.margin_signal === 'string' ? rawMetrics!.margin_signal : 'STABLE',
+        solvency_signal: typeof rawMetrics?.solvency_signal === 'string' ? rawMetrics!.solvency_signal : 'SAFE',
+        current_z_score: typeof rawMetrics?.current_z_score === 'number' ? rawMetrics!.current_z_score : 0,
+        current_fcf_conversion_pct: typeof rawMetrics?.current_fcf_conversion_pct === 'number' ? rawMetrics!.current_fcf_conversion_pct : 0,
+    };
+
+    const rawAnalysis = data.analysis as Record<string, any> | undefined;
+    const analysis: AnalysisPayload = {
+        pattern_diagnosis: typeof rawAnalysis?.pattern_diagnosis === 'string' ? rawAnalysis!.pattern_diagnosis : 'No diagnosis available.',
+        flags: Array.isArray(rawAnalysis?.flags) ? rawAnalysis!.flags : [],
+        analyst_verdict_archetype: typeof rawAnalysis?.analyst_verdict_archetype === 'string' ? rawAnalysis!.analyst_verdict_archetype : 'NEUTRAL',
+        analyst_verdict_summary: typeof rawAnalysis?.analyst_verdict_summary === 'string' ? rawAnalysis!.analyst_verdict_summary : 'No summary available.',
+        retail_verdict: typeof rawAnalysis?.retail_verdict === 'string' ? rawAnalysis!.retail_verdict : undefined,
+    };
+
     const companyName = typeof data.company_name === 'string' ? data.company_name : fallbackTicker;
     const ticker = typeof data.ticker === 'string' ? data.ticker : fallbackTicker;
     const colorSignal = typeof data.color_signal === 'string' ? data.color_signal : 'YELLOW';
     const scorecard = (data.scorecard as ScorecardResult | undefined) ?? undefined;
     const scorecardError = typeof data.scorecard_error === 'string' ? data.scorecard_error : undefined;
-
-    if (!metrics || !analysis) {
-        return null;
-    }
 
     return {
         ticker,
