@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState } from 'react';
+import { safeFetch } from '@/utils/api';
 
 type HistoryItem = {
     ticker: string;
@@ -35,26 +36,18 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
             setIsLoading(true);
             setHistoryError(null);
             try {
-                const response = await fetch(`${BASE_URL}/api/history`, {
+                const response = await safeFetch(`${BASE_URL}/api/history`, {
                     headers: {
                         'X-API-Key': API_KEY,
                     },
                 });
                 
-                // --- SAFER FETCH GUARD ---
-                const contentType = response.headers.get('content-type');
-                if (!response.ok || !contentType || !contentType.includes('application/json')) {
-                    const text = await response.text();
-                    console.error("[SIDEBAR] RAW NON-JSON RESPONSE:", text.slice(0, 500));
-                    if (text.includes('<!DOCTYPE') || text.includes('<html')) {
-                        throw new Error('Backend engine is waking up. Please wait 20 seconds...');
-                    }
-                    throw new Error(`History unavailable (${response.status})`);
+                if (!response.success) {
+                    throw new Error(response.error);
                 }
 
-                const body = await response.json();
                 if (isActive) {
-                    setHistory(Array.isArray(body) ? body : []);
+                    setHistory(Array.isArray(response.data) ? response.data : []);
                 }
             } catch (err) {
                 const message = err instanceof Error ? err.message : 'Failed to load history.';

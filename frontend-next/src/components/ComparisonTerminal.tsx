@@ -86,14 +86,14 @@ const ComparisonTerminal = () => {
         setResult(null);
 
         try {
-            const response = await fetch(
+            const response = await safeFetch(
                 `${BASE_URL}/api/compare?ticker_a=${encodeURIComponent(left)}&ticker_b=${encodeURIComponent(right)}`
             );
-            const body = await response.json();
-            if (!response.ok) {
-                throw new Error(body?.detail || 'Comparison failed.');
+            
+            if (!response.success) {
+                throw new Error(response.error);
             }
-            setResult(body as ComparePayload);
+            setResult(response.data as ComparePayload);
         } catch (err) {
             const message = err instanceof Error ? err.message : 'Comparison failed.';
             setError(message);

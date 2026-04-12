@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useEffect, useState, useRef } from 'react';
+import { safeFetch } from '@/utils/api';
 
 declare global {
   interface Window {
@@ -38,29 +39,17 @@ const ChartIntelligence = ({ ticker: initialTicker }: { ticker: string }) => {
         try {
             console.log(`[FETCH] Requesting AI Intelligence for ${symbol} from: ${BASE_URL}`);
             
-            const intelRes = await fetch(`${BASE_URL}/api/explain-chart?ticker=${symbol}`);
+            const intelRes = await safeFetch(`${BASE_URL}/api/explain-chart?ticker=${symbol}`);
             
-            // --- SAFER FETCH GUARD (User Recommendation) ---
-            if (!intelRes.ok) {
-                const errText = await intelRes.text();
-                throw new Error(`Engine unavailable (${intelRes.status}). ${errText.slice(0, 50)}`);
+            if (!intelRes.success) {
+                throw new Error(intelRes.error);
             }
 
-            const contentType = intelRes.headers.get('content-type');
-            if (!contentType || !contentType.includes('application/json')) {
-                const text = await intelRes.text();
-                console.error("RAW NON-JSON RESPONSE:", text.slice(0, 500));
-                if (text.includes('<!DOCTYPE') || text.includes('<html')) {
-                    throw new Error('AI Engine is currently waking up. Please wait 20 seconds and refresh.');
-                }
-                throw new Error('Received unexpected HTML response from server.');
-            }
-
-            const intelData = await intelRes.json();
+            const intelData = intelRes.data;
             
             // Also fetch markers safely
-            const markersRes = await fetch(`${BASE_URL}/api/timeline-markers?ticker=${symbol}`);
-            const markersData = await markersRes.json().catch(() => []);
+            const markersRes = await safeFetch(`${BASE_URL}/api/timeline-markers?ticker=${symbol}`);
+            const markersData = markersRes.success ? markersRes.data : [];
             
             setIntelligence(intelData);
             setMarkers(Array.isArray(markersData) ? markersData : []);

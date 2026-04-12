@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { safeFetch } from '@/utils/api';
 import ManualEntryModal from './ManualEntryModal';
 import { FEATURES } from '@/config/features';
 import ScorecardPanel from '@/components/MetricsPanel/Scorecard/ScorecardPanel';
@@ -183,22 +184,16 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
         const loadHistory = async () => {
             setScorecardHistoryError(null);
             try {
-                const response = await fetch(`${BASE_URL}/api/scorecard/history`, {
+                const response = await safeFetch(`${BASE_URL}/api/scorecard/history`, {
                     headers: { 'X-API-Key': API_KEY },
                 });
                 
-                const contentType = response.headers.get('content-type');
-                if (!response.ok || !contentType || !contentType.includes('application/json')) {
-                    const text = await response.text();
-                    if (text.includes('<!DOCTYPE') || text.includes('<html')) {
-                        throw new Error('Backend engine is waking up. Please refresh in 30 seconds.');
-                    }
-                    throw new Error('Backend returned non-JSON response.');
+                if (!response.success) {
+                    throw new Error(response.error);
                 }
 
-                const body = await response.json();
                 if (isActive) {
-                    setScorecardHistory(Array.isArray(body) ? body : []);
+                    setScorecardHistory(Array.isArray(response.data) ? response.data : []);
                 }
             } catch (err) {
                 if (isActive) {
@@ -227,7 +222,7 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
         ]);
 
         try {
-            const response = await fetch(`${BASE_URL}/api/analyze`, {
+            const response = await safeFetch(`${BASE_URL}/api/analyze`, {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
@@ -236,12 +231,11 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
                 body: JSON.stringify(payload),
             });
 
-            const body = await response.json();
-            if (!response.ok) {
-                throw new Error(body?.detail || 'Manual analysis failed.');
+            if (!response.success) {
+                throw new Error(response.error);
             }
 
-            const normalized = normalizeResultPayload(body, payload.company.ticker || 'CUSTOM');
+            const normalized = normalizeResultPayload(response.data, payload.company.ticker || 'CUSTOM');
             if (!normalized) {
                 throw new Error('Manual analysis returned invalid payload.');
             }
