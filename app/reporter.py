@@ -8,7 +8,7 @@ from datetime import datetime
 from reportlab.lib.pagesizes import LETTER
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.units import inch
 
 class FinancialReportBuilder:
@@ -83,25 +83,45 @@ class FinancialReportBuilder:
         elements.append(Paragraph(f"INSTITUTIONAL TREND ANALYSIS • {datetime.now().strftime('%Y-%m-%d %H:%M')}", self.styles['SubHeader']))
         elements.append(Spacer(1, 0.3 * inch))
 
+        # ── EXTRACT DATA SAFELY ───────────────────────────────────────────────
+        # Handle both nested and flat state formats
+        raw_result = self.analysis_data.get("analysis_result")
+        if isinstance(raw_result, dict):
+            analysis = raw_result.get("analysis", {})
+        else:
+            analysis = self.analysis_data.get("analysis", {})
+            
+        metrics = self.analysis_data.get("metrics", {})
+        
         # ── VERDICT SECTION ───────────────────────────────────────────────────
-        analysis = (self.analysis_data.get("analysis_result") or {}).get("analysis") or {}
         archetype = analysis.get("analyst_verdict_archetype", "UNKNOWN")
+        if isinstance(archetype, list):
+            archetype = ", ".join(archetype)
         
         elements.append(Paragraph(f"SENIOR PARTNER VERDICT: {archetype}", self.styles['VerdictHeader']))
-        elements.append(Paragraph(analysis.get("analyst_verdict_summary", "No summary available."), self.styles['BodyCopy']))
+        elements.append(Paragraph(str(analysis.get("analyst_verdict_summary", "No summary available.")), self.styles['BodyCopy']))
         elements.append(Spacer(1, 0.2 * inch))
 
         # ── DIAGNOSIS ─────────────────────────────────────────────────────────
         elements.append(Paragraph("FORENSIC PATTERN DIAGNOSIS", self.styles['SubHeader']))
-        elements.append(Paragraph(analysis.get("pattern_diagnosis", "No diagnosis generated."), self.styles['BodyCopy']))
+        
+        diag = analysis.get("pattern_diagnosis", "No diagnosis generated.")
+        if isinstance(diag, dict):
+            diag = diag.get("text", "No diagnosis generated.")
+            
+        elements.append(Paragraph(str(diag), self.styles['BodyCopy']))
         elements.append(Spacer(1, 0.3 * inch))
 
         # ── METRICS TABLE ─────────────────────────────────────────────────────
-        metrics = self.analysis_data.get("metrics", {})
-        if "yearly" in metrics:
+        if isinstance(metrics, dict) and "yearly" in metrics:
             elements.append(Paragraph("5-YEAR FINANCIAL TRAJECTORY", self.styles['SubHeader']))
             table_data = self._build_metrics_table(metrics)
-            t = Table(table_data, colWidths=[1.2*inch] + [0.8*inch]*5)
+            
+            # Dynamic width calculation
+            num_cols = len(table_data[0])
+            col_widths = [1.5*inch] + [0.9*inch]*(num_cols-1)
+            
+            t = Table(table_data, colWidths=col_widths)
             t.setStyle(TableStyle([
                 ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor("#f8fafc")),
                 ('TEXTCOLOR', (0, 0), (-1, 0), colors.HexColor("#64748b")),
@@ -118,12 +138,16 @@ class FinancialReportBuilder:
 
         # ── FLAGS ─────────────────────────────────────────────────────────────
         flags = analysis.get("flags", [])
-        if flags:
+        if flags and isinstance(flags, list):
             elements.append(Paragraph("STRUCTURAL RISK & OPPORTUNITY FLAGS", self.styles['SubHeader']))
             for flag in flags:
-                flag_text = f"<b>{flag.get('emoji', '!')} {flag.get('name')}</b>: {flag.get('explanation')}"
-                elements.append(Paragraph(flag_text, self.styles['BodyCopy']))
-                elements.append(Spacer(1, 0.1 * inch))
+                if isinstance(flag, dict):
+                    name = flag.get('name', 'Alert')
+                    emoji = flag.get('emoji', '!')
+                    expl = flag.get('explanation', '')
+                    flag_text = f"<b>{emoji} {name}</b>: {expl}"
+                    elements.append(Paragraph(flag_text, self.styles['BodyCopy']))
+                    elements.append(Spacer(1, 0.1 * inch))
 
         # ── FOOTER ────────────────────────────────────────────────────────────
         elements.append(Spacer(1, 0.5 * inch))
@@ -135,19 +159,28 @@ class FinancialReportBuilder:
 
     def _build_metrics_table(self, metrics: dict) -> list:
         """Convert metrics dict into a table format for ReportLab."""
-        years = [str(y["year"]) for y in metrics["yearly"]]
+        yearly_data = metrics.get("yearly", [])
+        if not yearly_data:
+            return [["No Data Available"]]
+            
+        years = [str(y.get("year", "N/A")) for y in yearly_data]
         header = ["Metric / Year"] + years
         
         rows = [header]
         
+        def fmt(val):
+            try:
+                return f"{float(val):,.0f}" if val is not None else "0"
+            except: return "0"
+
         # Revenue
-        rows.append(["Revenue ($M)"] + [f"{y.get('revenue', 0):,.0f}" for y in metrics["yearly"]])
-        rows.append(["EBITDA ($M)"] + [f"{y.get('ebitda', 0):,.0f}" for y in metrics["yearly"]])
-        rows.append(["Net Income ($M)"] + [f"{y.get('net_income', 0):,.0f}" for y in metrics["yearly"]])
-        rows.append(["EBITDA Margin %"] + [f"{y.get('ebitda_margin', 0)}%" for y in metrics["yearly"]])
-        rows.append(["Net Debt / EBITDA"] + [f"{y.get('leverage', 0)}x" for y in metrics["yearly"]])
-        rows.append(["Altman Z-Score"] + [f"{y.get('z_score', 0):.2f}" for y in metrics["yearly"]])
-        rows.append(["ROE %"] + [f"{y.get('roe', 0)}%" for y in metrics["yearly"]])
+        rows.append(["Revenue ($M)"] + [fmt(y.get('revenue')) for y in yearly_data])
+        rows.append(["EBITDA ($M)"] + [fmt(y.get('ebitda')) for y in yearly_data])
+        rows.append(["Net Income ($M)"] + [fmt(y.get('net_income')) for y in yearly_data])
+        rows.append(["EBITDA Margin %"] + [f"{y.get('ebitda_margin', 0)}%" for y in yearly_data])
+        rows.append(["Net Debt / EBITDA"] + [f"{y.get('leverage', 0)}x" for y in yearly_data])
+        rows.append(["Altman Z-Score"] + [f"{y.get('z_score', 0):.2f}" for y in yearly_data])
+        rows.append(["ROE %"] + [f"{y.get('roe', 0)}%" for y in yearly_data])
         
         return rows
 
