@@ -28,7 +28,7 @@ from sqlalchemy.future import select
 from sqlalchemy.ext.asyncio import AsyncSession
 import json
 from contextlib import asynccontextmanager
-from fastapi.responses import StreamingResponse, FileResponse
+from fastapi.responses import StreamingResponse, FileResponse, JSONResponse
 import asyncio
 from app.calculator import numeric_value
 from app.engine.orchestrator import run_full_analysis
@@ -104,28 +104,32 @@ def detect_signals(ticker: str, history_df: Any, news: list) -> dict:
             break
 
     # 3. Volume Detection (20-day avg)
-    volume_signal = {"volume_spike": False, "ratio": 1.0, "explanation": "Normal volume"}
-    if 'Volume' in history_df.columns and len(history_df) > 1:
-        avg_vol = history_df['Volume'].iloc[:-1].mean()
-        current_vol = history_df['Volume'].iloc[-1]
-        vol_ratio = current_vol / avg_vol if avg_vol > 0 else 1
-        volume_signal = {
-            "volume_spike": vol_ratio > 1.8,
-            "ratio": round(float(vol_ratio), 2),
-            "explanation": "Unusually high volume" if vol_ratio > 2.0 else "Normal volume"
-        }
+    volume_signal = {"volume_spike": False, "ratio": 1.0, "explanation": "Data unavailable"}
+    if 'Volume' in history_df.columns and not history_df['Volume'].empty and len(history_df) > 1:
+        try:
+            avg_vol = history_df['Volume'].iloc[:-1].mean()
+            current_vol = history_df['Volume'].iloc[-1]
+            vol_ratio = current_vol / avg_vol if avg_vol > 0 else 1
+            volume_signal = {
+                "volume_spike": bool(vol_ratio > 1.8),
+                "ratio": round(float(vol_ratio), 2),
+                "explanation": "Unusually high volume" if vol_ratio > 2.0 else "Normal volume"
+            }
+        except: pass
 
     # 4. Technical Detection (20-day breakout)
-    technical_signal = None
-    if 'High' in history_df.columns and 'Low' in history_df.columns and len(history_df) > 5:
-        lookback = history_df.iloc[-21:-1] if len(history_df) > 21 else history_df.iloc[:-1]
-        res_level = lookback['High'].max()
-        sup_level = lookback['Low'].min()
-        
-        if latest_close > res_level * 1.001:
-            technical_signal = {"pattern": "breakout", "level": round(float(res_level), 2)}
-        elif latest_close < sup_level * 0.999:
-            technical_signal = {"pattern": "breakdown", "level": round(float(sup_level), 2)}
+    technical_signal = {"pattern": "neutral", "level": 0.0}
+    if 'High' in history_df.columns and 'Low' in history_df.columns and not history_df.empty and len(history_df) > 5:
+        try:
+            lookback = history_df.iloc[-21:-1] if len(history_df) > 21 else history_df.iloc[:-1]
+            res_level = lookback['High'].max()
+            sup_level = lookback['Low'].min()
+            
+            if latest_close > res_level * 1.001:
+                technical_signal = {"pattern": "breakout", "level": round(float(res_level), 2)}
+            elif latest_close < sup_level * 0.999:
+                technical_signal = {"pattern": "breakdown", "level": round(float(sup_level), 2)}
+        except: pass
 
     return {
         "news": news_signal,
@@ -230,15 +234,51 @@ def set_to_cache(key: str, data: Any):
     import time
     _chart_cache[key] = {'timestamp': time.time(), 'data': data}
 
+@app.exception_handler(Exception)
+async def global_exception_handler(request, exc):
+    import traceback
+    error_details = traceback.format_exc()
+    print(f"[GLOBAL ERROR] {error_details}")
+    return JSONResponse(
+        status_code=500,
+        content={
+            "success": False,
+            "error": str(exc),
+            "traceback": error_details,
+            "type": "global"
+        }
+    )
+
+import numpy as np
+
+def sanitize_for_json(obj):
+    """
+    Recursively converts NumPy types and NaN/Infinity to JSON-safe native Python types.
+    """
+    if isinstance(obj, dict):
+        return {k: sanitize_for_json(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [sanitize_for_json(i) for i in obj]
+    elif isinstance(obj, (np.bool_, bool)):
+        return bool(obj)
+    elif isinstance(obj, (np.integer, int)):
+        return int(obj)
+    elif isinstance(obj, (np.floating, float)):
+        if np.isnan(obj) or np.isinf(obj):
+            return None
+        return float(obj)
+    elif obj is None:
+        return None
+    return obj
+
 @app.get("/api/explain-chart")
 async def explain_chart(ticker: str):
-    import yfinance as yf
-    
-    cache_key = f"explain_{ticker.upper()}"
-    cached = get_from_cache(cache_key)
-    if cached: return cached
-
     try:
+        import yfinance as yf
+        cache_key = f"explain_{ticker.upper()}"
+        cached = get_from_cache(cache_key)
+        if cached: return cached
+
         t = yf.Ticker(ticker)
         hist = t.history(period="30d")
         if hist.empty:
@@ -250,12 +290,26 @@ async def explain_chart(ticker: str):
         
         signals = detect_signals(ticker, hist, news)
         result = generate_chart_explanation(ticker, signals)
-        set_to_cache(cache_key, result)
-        return result
+        
+        # DEFINITIVE FIX: Deep sanitize before returning
+        safe_result = sanitize_for_json(result)
+        
+        set_to_cache(cache_key, safe_result)
+        return safe_result
     except HTTPException: raise
     except Exception as e:
-        print(f"[API ERROR] {e}")
-        raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+        error_details = traceback.format_exc()
+        print(f"[API ERROR] {error_details}")
+        return JSONResponse(
+            status_code=500,
+            content={
+                "success": False,
+                "error": str(e),
+                "traceback": error_details,
+                "ticker": ticker
+            }
+        )
 
 @app.get("/api/timeline-markers")
 async def timeline_markers(ticker: str):
@@ -284,8 +338,10 @@ async def timeline_markers(ticker: str):
                     "price": round(float(curr), 2),
                     "icon": "⚡" if day_pc > 0 else "🚨"
                 })
-        set_to_cache(cache_key, markers)
-        return markers
+        # Sanitize markers for JSON
+        safe_markers = sanitize_for_json(markers)
+        set_to_cache(cache_key, safe_markers)
+        return safe_markers
     except: return []
 
 # ── Core Analysis Helpers ───────────────────────────────────────────────────
@@ -360,8 +416,12 @@ frontend_path = next((p for p in potential_paths if os.path.exists(os.path.join(
 
 @app.get("/api/history")
 async def get_history(db: AsyncSession = Depends(get_db)):
-    res = await db.execute(select(AnalysisHistory).order_by(AnalysisHistory.created_at.desc()).limit(20))
-    return [{"ticker": h.ticker, "name": h.company_name, "archetype": h.archetype, "date": h.created_at} for h in res.scalars().all()]
+    try:
+        res = await db.execute(select(AnalysisHistory).order_by(AnalysisHistory.created_at.desc()).limit(20))
+        return [{"ticker": h.ticker, "name": h.company_name, "archetype": h.archetype, "date": h.created_at} for h in res.scalars().all()]
+    except Exception as e:
+        print(f"[HISTORY ERROR] {e}")
+        return JSONResponse({"detail": "History currently unavailable."}, status_code=500)
 
 if frontend_path:
     app.mount("/", StaticFiles(directory=frontend_path, html=True), name="frontend")

@@ -153,7 +153,7 @@ const MainTerminal = ({ forceTicker, onAnalysisComplete, onDataLoaded }: MainTer
     const eventSourceRef = useRef<EventSource | null>(null);
     const lastForcedTickerRef = useRef<string | null>(null);
     
-    // Direct link to backend to bypass Vercel proxy issues
+    // Definitive API link to backend
     const BACKEND_PROD_URL = "https://ghouri112-financial-terminal-backend.hf.space";
     const BASE_URL = (typeof window !== 'undefined' && (window.location.hostname.includes('vercel.app') || window.location.hostname.includes('github.dev'))) 
         ? BACKEND_PROD_URL 
