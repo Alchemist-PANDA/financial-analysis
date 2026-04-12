@@ -12,7 +12,7 @@
     "axios": "^1.15.0",
     "date-fns": "^4.1.0",
     "jspdf": "^2.5.1",
-    "next": "15.1.6",
+    "next": "^16.2.3",
     "react": "19.0.0",
     "react-dom": "19.0.0",
     "recharts": "^3.8.1",
@@ -23,7 +23,7 @@
     "@types/react": "^19",
     "@types/react-dom": "^19",
     "eslint": "^9",
-    "eslint-config-next": "15.1.6",
+    "eslint-config-next": "^16.2.3",
     "typescript": "^5"
   }
 }
