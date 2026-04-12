@@ -41,13 +41,15 @@ const Sidebar = ({ onSelectTicker, refreshTrigger, currentView, onViewChange }: 
                     },
                 });
                 
+                // --- SAFER FETCH GUARD ---
                 const contentType = response.headers.get('content-type');
                 if (!response.ok || !contentType || !contentType.includes('application/json')) {
                     const text = await response.text();
-                    if (text.includes('<!DOCTYPE')) {
-                        throw new Error('Backend engine is waking up. Please wait...');
+                    console.error("[SIDEBAR] RAW NON-JSON RESPONSE:", text.slice(0, 500));
+                    if (text.includes('<!DOCTYPE') || text.includes('<html')) {
+                        throw new Error('Backend engine is waking up. Please wait 20 seconds...');
                     }
-                    throw new Error('Unable to load history.');
+                    throw new Error(`History unavailable (${response.status})`);
                 }
 
                 const body = await response.json();

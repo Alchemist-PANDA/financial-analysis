@@ -42,11 +42,23 @@ const AlertsPanel = () => {
         setNewTicker('');
         try {
             const res = await fetch(`${BASE_URL}/api/explain-chart?ticker=${ticker}`);
+            
+            // --- SAFER FETCH GUARD ---
+            const contentType = res.headers.get('content-type');
+            if (!res.ok || !contentType || !contentType.includes('application/json')) {
+                const text = await res.text();
+                if (text.includes('<!DOCTYPE')) {
+                    alert('AI Engine is currently waking up. Please try adding in 20 seconds.');
+                    return;
+                }
+                throw new Error('Server returned invalid response.');
+            }
+
             const data = await res.json();
             
             const newItem: WatchlistItem = {
                 ticker,
-                lastPrice: data.signals?.price_change || 0, // Just storing change for now
+                lastPrice: data.signals?.price_change || 0,
                 change: data.price_change,
                 explanation: data.explanation
             };
