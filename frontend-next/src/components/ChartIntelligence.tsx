@@ -16,7 +16,9 @@ interface SignalData {
   signals: any;
 }
 
-const ChartIntelligence = ({ ticker }: { ticker: string }) => {
+const ChartIntelligence = ({ ticker: initialTicker }: { ticker: string }) => {
+    const [ticker, setTicker] = useState(initialTicker || 'AAPL');
+    const [inputVal, setInputVal] = useState(initialTicker || 'AAPL');
     const [intelligence, setIntelligence] = useState<SignalData | null>(null);
     const [isLoading, setIsLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
@@ -24,32 +26,36 @@ const ChartIntelligence = ({ ticker }: { ticker: string }) => {
 
     const BASE_URL = (typeof window !== 'undefined' ? window.location.origin : 'http://localhost:7860').replace(/\\n/g, '').trim();
 
-    useEffect(() => {
-        if (!ticker) return;
-
-        const fetchIntelligence = async () => {
-            setIsLoading(true);
-            setError(null);
-            try {
-                const res = await fetch(`${BASE_URL}/api/explain-chart?ticker=${ticker}`);
-                if (!res.ok) throw new Error('Intelligence engine unavailable');
+    const fetchIntelligence = async (symbol: string) => {
+        setIsLoading(true);
+        setError(null);
+        try {
+            const res = await fetch(`${BASE_URL}/api/explain-chart?ticker=${symbol}`);
+            if (!res.ok) {
                 const data = await res.json();
-                setIntelligence(data);
-            } catch (err) {
-                setError('Unable to generate AI chart analysis');
-            } finally {
-                setIsLoading(false);
+                throw new Error(data.detail || 'Intelligence engine unavailable');
             }
-        };
+            const data = await res.json();
+            setIntelligence(data);
+        } catch (err: any) {
+            setError(err.message || 'Unable to generate AI chart analysis');
+        } finally {
+            setIsLoading(false);
+        }
+    };
 
-        fetchIntelligence();
-
-        // Initialize TradingView Widget
+    const loadChart = (symbol: string) => {
         if (window.TradingView && containerRef.current) {
+            containerRef.current.innerHTML = ''; // Clear previous
+            const child = document.createElement('div');
+            child.id = `tv_chart_${Date.now()}`;
+            child.style.height = '100%';
+            containerRef.current.appendChild(child);
+
             new window.TradingView.widget({
-                "container_id": containerRef.current.id,
+                "container_id": child.id,
                 "autosize": true,
-                "symbol": ticker.includes(':') ? ticker : `NASDAQ:${ticker}`,
+                "symbol": symbol.includes(':') ? symbol : `NASDAQ:${symbol}`,
                 "interval": "D",
                 "timezone": "Etc/UTC",
                 "theme": "dark",
@@ -67,7 +73,19 @@ const ChartIntelligence = ({ ticker }: { ticker: string }) => {
                 "popup_height": "650",
             });
         }
-    }, [ticker, BASE_URL]);
+    };
+
+    useEffect(() => {
+        fetchIntelligence(ticker);
+        loadChart(ticker);
+    }, [ticker]);
+
+    const handleSearch = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (inputVal.trim()) {
+            setTicker(inputVal.trim().toUpperCase());
+        }
+    };
 
     const getConfidenceColor = (score: number) => {
         if (score > 0.7) return '#059669'; // Green
@@ -77,12 +95,26 @@ const ChartIntelligence = ({ ticker }: { ticker: string }) => {
 
     return (
         <div className="intelligence-container">
+            {/* Header with Search */}
+            <div className="intel-header">
+                <form onSubmit={handleSearch} className="search-form">
+                    <input 
+                        type="text" 
+                        value={inputVal} 
+                        onChange={(e) => setInputVal(e.target.value)}
+                        placeholder="Enter Ticker (e.g. NVDA)"
+                        className="ticker-input"
+                    />
+                    <button type="submit" className="search-btn">ANALYZE CHART</button>
+                </form>
+            </div>
+
             {/* AI Explanation Box */}
             <section className="explanation-card">
                 <div className="card-header">
                     <div className="title-row">
                         <span className="icon">🧠</span>
-                        <h3>CHART INTELLIGENCE</h3>
+                        <h3>FORENSIC CHART SIGNALS: {ticker}</h3>
                         {intelligence && (
                             <span 
                                 className="confidence-badge"
@@ -96,9 +128,9 @@ const ChartIntelligence = ({ ticker }: { ticker: string }) => {
                 
                 <div className="card-body">
                     {isLoading ? (
-                        <div className="loading-text">Analyzing market signals...</div>
+                        <div className="loading-text">Scanning for institutional patterns...</div>
                     ) : error ? (
-                        <div className="error-text">{error}</div>
+                        <div className="error-text">⚠️ {error}</div>
                     ) : intelligence ? (
                         <p className="explanation-text">{intelligence.explanation}</p>
                     ) : (
@@ -109,7 +141,7 @@ const ChartIntelligence = ({ ticker }: { ticker: string }) => {
 
             {/* TradingView Widget */}
             <div className="chart-wrapper">
-                <div id="tv_chart_container" ref={containerRef} style={{ height: '500px' }} />
+                <div id="tv_chart_container" ref={containerRef} style={{ height: '550px' }} />
             </div>
 
             <style jsx>{`
@@ -120,6 +152,32 @@ const ChartIntelligence = ({ ticker }: { ticker: string }) => {
                     padding: 16px;
                     height: 100%;
                     overflow-y: auto;
+                    background: #0f172a;
+                }
+                .intel-header {
+                    padding: 8px 0;
+                }
+                .search-form {
+                    display: flex;
+                    gap: 8px;
+                }
+                .ticker-input {
+                    background: #1e293b;
+                    border: 1px solid #334155;
+                    color: white;
+                    padding: 8px 12px;
+                    font-family: var(--font-mono);
+                    font-size: 13px;
+                    width: 200px;
+                }
+                .search-btn {
+                    background: #0ea5e9;
+                    color: white;
+                    border: none;
+                    padding: 0 16px;
+                    font-size: 11px;
+                    font-weight: 700;
+                    cursor: pointer;
                 }
                 .explanation-card {
                     background: #1e293b;
@@ -164,7 +222,7 @@ const ChartIntelligence = ({ ticker }: { ticker: string }) => {
                 }
                 .chart-wrapper {
                     flex: 1;
-                    min-height: 500px;
+                    min-height: 550px;
                     border: 1px solid #334155;
                     background: #0f172a;
                 }
