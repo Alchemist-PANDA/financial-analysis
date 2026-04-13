@@ -149,8 +149,8 @@ def generate_chart_explanation(ticker: str, signals: dict) -> dict:
     pc = signals["price_change"]
     direction = "up" if pc > 0 else "down"
     
-    if signals["news"]:
-        parts.append(f"Stock {direction} {abs(pc):.1f}% following news: '{signals['news']['headline']}'")
+    if signals.get("news") and isinstance(signals["news"], dict):
+        parts.append(f"Stock {direction} {abs(pc):.1f}% following news: '{signals['news'].get('headline', 'Market Catalyst')}'")
         confidence += 0.5
     elif abs(pc) > 2.5:
         parts.append(f"Stock {direction} {abs(pc):.1f}% on significant momentum")
@@ -251,25 +251,21 @@ async def global_exception_handler(request, exc):
 
 import numpy as np
 
+class NumpyEncoder(json.JSONEncoder):
+    def default(self, obj):
+        if isinstance(obj, np.bool_):
+            return bool(obj)
+        if isinstance(obj, (np.integer, np.int64)):
+            return int(obj)
+        if isinstance(obj, (np.floating, np.float64)):
+            return float(obj) if not (np.isnan(obj) or np.isinf(obj)) else None
+        if isinstance(obj, np.ndarray):
+            return obj.tolist()
+        return super(NumpyEncoder, self).default(obj)
+
 def sanitize_for_json(obj):
-    """
-    Recursively converts NumPy types and NaN/Infinity to JSON-safe native Python types.
-    """
-    if isinstance(obj, dict):
-        return {k: sanitize_for_json(v) for k, v in obj.items()}
-    elif isinstance(obj, list):
-        return [sanitize_for_json(i) for i in obj]
-    elif isinstance(obj, (np.bool_, bool)):
-        return bool(obj)
-    elif isinstance(obj, (np.integer, int)):
-        return int(obj)
-    elif isinstance(obj, (np.floating, float)):
-        if np.isnan(obj) or np.isinf(obj):
-            return None
-        return float(obj)
-    elif obj is None:
-        return None
-    return obj
+    """The Nuclear Option: Force native Python types via JSON round-trip with custom encoder."""
+    return json.loads(json.dumps(obj, cls=NumpyEncoder))
 
 @app.get("/api/explain-chart")
 async def explain_chart(ticker: str):
