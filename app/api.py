@@ -1052,7 +1052,9 @@ potential_paths = [
     os.path.join(os.getcwd(), "frontend-next", "out"),
     "/app/frontend-next/out"
 ]
+print(f"Checking for frontend at: {potential_paths}")
 frontend_path = next((p for p in potential_paths if os.path.exists(os.path.join(p, "index.html"))), None)
+print(f"Frontend path resolved to: {frontend_path}")
 
 @app.get("/api/history", dependencies=[Depends(get_api_key)])
 async def get_history(db: AsyncSession = Depends(get_db)):
